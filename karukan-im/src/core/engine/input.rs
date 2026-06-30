@@ -132,12 +132,14 @@ impl InputMethodEngine {
 
         // Bare Space from Empty state:
         //
-        // * Hiragana mode → commit a full-width `　` directly, matching
-        //   the Japanese-IME convention. We deliberately do NOT enter
-        //   Composing here: if we did, the next Space the user typed
-        //   would be interpreted by `process_key_composing` as the
-        //   conversion trigger and an unwanted candidate window would
-        //   appear after two spaces in a row.
+        // * Hiragana mode → commit a space character. The character
+        //   is configurable via `space_style`: full-width `　` (U+3000,
+        //   Japanese-IME convention) or half-width ` ` (U+0020, ASCII).
+        //   We deliberately do NOT enter Composing here: if we did,
+        //   the next Space the user typed would be interpreted by
+        //   `process_key_composing` as the conversion trigger and an
+        //   unwanted candidate window would appear after two spaces
+        //   in a row.
         // * Any other mode → return `not_consumed` so the OS delivers
         //   a normal half-width ASCII space to the application. The
         //   user is either typing ASCII (Alphabet) or in an edge mode
@@ -147,7 +149,11 @@ impl InputMethodEngine {
         // `Ctrl+Space` (above), which seeds a Composing session.
         if key.keysym == Keysym::SPACE && !key.modifiers.control_key && !key.modifiers.alt_key {
             return if self.input_mode == InputMode::Hiragana {
-                EngineResult::consumed().with_action(EngineAction::Commit("\u{3000}".to_string()))
+                let space = match self.config.space_style {
+                    crate::config::settings::SpaceStyle::Halfwidth => "\u{0020}",
+                    crate::config::settings::SpaceStyle::Fullwidth => "\u{3000}",
+                };
+                EngineResult::consumed().with_action(EngineAction::Commit(space.to_string()))
             } else {
                 EngineResult::not_consumed()
             };

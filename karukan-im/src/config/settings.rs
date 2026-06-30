@@ -36,6 +36,17 @@ pub enum StrategyMode {
     Main,
 }
 
+/// Space character style when pressing Space in Empty state with Hiragana mode
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SpaceStyle {
+    /// Full-width space (U+3000) — Japanese IME conventional behavior
+    #[default]
+    Fullwidth,
+    /// Half-width space (U+0020) — ASCII space
+    Halfwidth,
+}
+
 /// Conversion-related settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversionSettings {
@@ -70,6 +81,8 @@ pub struct ConversionSettings {
     pub n_threads: u32,
     /// Enable live conversion at startup (Ctrl+Shift+L still toggles at runtime)
     pub live_conversion: bool,
+    /// Space character style when pressing Space in Empty state (fullwidth or halfwidth)
+    pub space_style: SpaceStyle,
 }
 
 /// Learning cache settings

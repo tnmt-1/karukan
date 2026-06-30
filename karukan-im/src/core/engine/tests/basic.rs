@@ -59,6 +59,22 @@ fn test_engine_backspace() {
 }
 
 #[test]
+fn space_in_empty_hiragana_with_halfwidth_setting_commits_ascii_space() {
+    let mut engine = InputMethodEngine::new();
+    engine.config.space_style = crate::config::settings::SpaceStyle::Halfwidth;
+    assert_eq!(engine.input_mode, InputMode::Hiragana);
+
+    let result = engine.process_key(&press_key(Keysym::SPACE));
+    assert!(result.consumed);
+    assert!(matches!(engine.state(), InputState::Empty));
+    let committed = result.actions.iter().find_map(|a| match a {
+        EngineAction::Commit(t) => Some(t.clone()),
+        _ => None,
+    });
+    assert_eq!(committed.as_deref(), Some("\u{0020}"));
+}
+
+#[test]
 fn space_in_empty_hiragana_commits_fullwidth_space() {
     // Bare Space from Empty in Hiragana mode commits a full-width `　`
     // directly without entering Composing — the Japanese-IME
