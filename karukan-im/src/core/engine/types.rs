@@ -2,7 +2,7 @@
 
 use karukan_engine::{Dictionary, KanaKanjiConverter, RewriterChain, RomajiConverter};
 
-use crate::config::settings::StrategyMode;
+use crate::config::settings::{SpaceStyle, StrategyMode};
 
 use super::super::candidate::CandidateList;
 use super::super::preedit::Preedit;
@@ -88,6 +88,8 @@ pub struct EngineConfig {
     pub strategy: StrategyMode,
     /// Whether live conversion is enabled at engine startup
     pub live_conversion: bool,
+    /// Space character style when pressing Space in Empty state (fullwidth or halfwidth)
+    pub space_style: SpaceStyle,
 }
 
 impl EngineConfig {
@@ -108,6 +110,7 @@ impl EngineConfig {
             max_latency_ms: settings.conversion.max_latency_ms,
             strategy: settings.conversion.strategy,
             live_conversion: settings.conversion.live_conversion,
+            space_style: settings.conversion.space_style,
         }
     }
 }
@@ -124,6 +127,7 @@ impl Default for EngineConfig {
             max_latency_ms: 100,
             strategy: StrategyMode::default(),
             live_conversion: false,
+            space_style: SpaceStyle::Fullwidth,
         }
     }
 }
