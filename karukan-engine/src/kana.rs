@@ -200,6 +200,291 @@ pub fn hiragana_to_half_katakana(text: &str) -> String {
     katakana_to_half_width(&hiragana_to_katakana(text))
 }
 
+/// Check if a character is a "small" kana (digraph second element).
+fn is_small_kana(c: char) -> bool {
+    matches!(
+        c,
+        'ぁ' | 'ぃ'
+            | 'ぅ'
+            | 'ぇ'
+            | 'ぉ'
+            | 'ゃ'
+            | 'ゅ'
+            | 'ょ'
+            | 'ゎ'
+            | 'ァ'
+            | 'ィ'
+            | 'ゥ'
+            | 'ェ'
+            | 'ォ'
+            | 'ャ'
+            | 'ュ'
+            | 'ョ'
+            | 'ヮ'
+            | 'ヵ'
+            | 'ヶ'
+    )
+}
+
+/// Convert a single kana character to its Hepburn-style romaji.
+fn single_kana_to_romaji(c: char) -> &'static str {
+    match c {
+        // Vowels
+        'あ' | 'ア' => "a",
+        'い' | 'イ' => "i",
+        'う' | 'ウ' => "u",
+        'え' | 'エ' => "e",
+        'お' | 'オ' => "o",
+        // K-row
+        'か' | 'カ' => "ka",
+        'き' | 'キ' => "ki",
+        'く' | 'ク' => "ku",
+        'け' | 'ケ' => "ke",
+        'こ' | 'コ' => "ko",
+        // G-row (dakuten)
+        'が' | 'ガ' => "ga",
+        'ぎ' | 'ギ' => "gi",
+        'ぐ' | 'グ' => "gu",
+        'げ' | 'ゲ' => "ge",
+        'ご' | 'ゴ' => "go",
+        // S-row (Hepburn: し=shi, す=su, etc.)
+        'さ' | 'サ' => "sa",
+        'し' | 'シ' => "shi",
+        'す' | 'ス' => "su",
+        'せ' | 'セ' => "se",
+        'そ' | 'ソ' => "so",
+        // Z-row (dakuten: じ=ji)
+        'ざ' | 'ザ' => "za",
+        'じ' | 'ジ' => "ji",
+        'ず' | 'ズ' => "zu",
+        'ぜ' | 'ゼ' => "ze",
+        'ぞ' | 'ゾ' => "zo",
+        // T-row (Hepburn: ち=chi, つ=tsu)
+        'た' | 'タ' => "ta",
+        'ち' | 'チ' => "chi",
+        'つ' | 'ツ' => "tsu",
+        'て' | 'テ' => "te",
+        'と' | 'ト' => "to",
+        // D-row (dakuten)
+        'だ' | 'ダ' => "da",
+        'ぢ' | 'ヂ' => "di",
+        'づ' | 'ヅ' => "du",
+        'で' | 'デ' => "de",
+        'ど' | 'ド' => "do",
+        // N-row
+        'な' | 'ナ' => "na",
+        'に' | 'ニ' => "ni",
+        'ぬ' | 'ヌ' => "nu",
+        'ね' | 'ネ' => "ne",
+        'の' | 'ノ' => "no",
+        // H-row (Hepburn: ふ=fu, は=ha, etc.)
+        'は' | 'ハ' => "ha",
+        'ひ' | 'ヒ' => "hi",
+        'ふ' | 'フ' => "fu",
+        'へ' | 'ヘ' => "he",
+        'ほ' | 'ホ' => "ho",
+        // B-row (dakuten)
+        'ば' | 'バ' => "ba",
+        'び' | 'ビ' => "bi",
+        'ぶ' | 'ブ' => "bu",
+        'べ' | 'ベ' => "be",
+        'ぼ' | 'ボ' => "bo",
+        // P-row (handakuten)
+        'ぱ' | 'パ' => "pa",
+        'ぴ' | 'ピ' => "pi",
+        'ぷ' | 'プ' => "pu",
+        'ぺ' | 'ペ' => "pe",
+        'ぽ' | 'ポ' => "po",
+        // M-row
+        'ま' | 'マ' => "ma",
+        'み' | 'ミ' => "mi",
+        'む' | 'ム' => "mu",
+        'め' | 'メ' => "me",
+        'も' | 'モ' => "mo",
+        // Y-row
+        'や' | 'ヤ' => "ya",
+        'ゆ' | 'ユ' => "yu",
+        'よ' | 'ヨ' => "yo",
+        // R-row
+        'ら' | 'ラ' => "ra",
+        'り' | 'リ' => "ri",
+        'る' | 'ル' => "ru",
+        'れ' | 'レ' => "re",
+        'ろ' | 'ロ' => "ro",
+        // W-row
+        'わ' | 'ワ' => "wa",
+        'を' | 'ヲ' => "wo",
+        // ん/ン is handled specially in kana_to_romaji
+        // Small kana - should rarely appear standalone, but handle them
+        'ぁ' | 'ァ' => "xa",
+        'ぃ' | 'ィ' => "xi",
+        'ぅ' | 'ゥ' => "xu",
+        'ぇ' | 'ェ' => "xe",
+        'ぉ' | 'ォ' => "xo",
+        'ゃ' | 'ャ' => "xya",
+        'ゅ' | 'ュ' => "xyu",
+        'ょ' | 'ョ' => "xyo",
+        'ゎ' | 'ヮ' => "xwa",
+        'ヵ' => "xka",
+        'ヶ' => "xke",
+        // Historical kana
+        'ゐ' => "wyi",
+        'ゑ' => "wye",
+        'ヰ' => "wi",
+        'ヱ' => "we",
+        // Extended katakana for loan words
+        'ヴ' => "vu",
+        'ヷ' => "va",
+        'ヸ' => "vi",
+        'ヹ' => "ve",
+        'ヺ' => "vo",
+        // Prolonged sound mark
+        'ー' => "-",
+        // Other characters pass through
+        _ => "",
+    }
+}
+
+/// Convert kana (hiragana/katakana) text to its Hepburn-style romaji representation.
+///
+/// Non-kana characters (ASCII, kanji, symbols) pass through unchanged.
+/// The sokuon (っ/ッ) doubles the following consonant.
+/// The syllabic nasal (ん/ン) becomes "n" (or "n'" before vowels and y-series).
+/// The prolonged sound mark (ー) becomes "-".
+///
+/// Examples:
+/// ```
+/// # use karukan_engine::kana_to_romaji;
+/// assert_eq!(kana_to_romaji("あいうえお"), "aiueo");
+/// assert_eq!(kana_to_romaji("カキクケコ"), "kakikukeko");
+/// assert_eq!(kana_to_romaji("がっこう"), "gakkou");
+/// assert_eq!(kana_to_romaji("こんにちは"), "konnichiha");
+/// assert_eq!(kana_to_romaji("しんぶん"), "shinbun");
+/// assert_eq!(kana_to_romaji("abc123"), "abc123");
+/// ```
+pub fn kana_to_romaji(text: &str) -> String {
+    let mut result = String::with_capacity(text.len() * 2);
+    let chars: Vec<char> = text.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
+
+    while i < len {
+        let c = chars[i];
+
+        // Handle sokuon (っ/ッ): double the following consonant's first letter
+        if c == 'っ' || c == 'ッ' {
+            if i + 1 < len {
+                let next_romaji = single_kana_to_romaji(chars[i + 1]);
+                if let Some(first) = next_romaji.chars().next() {
+                    result.push(first);
+                }
+            }
+            i += 1;
+            continue;
+        }
+
+        // Handle syllabic nasal (ん/ン)
+        if c == 'ん' || c == 'ン' {
+            if i + 1 < len {
+                let next_romaji = single_kana_to_romaji(chars[i + 1]);
+                let needs_apostrophe = next_romaji
+                    .chars()
+                    .next()
+                    .is_some_and(|ch| matches!(ch, 'a' | 'i' | 'u' | 'e' | 'o' | 'y'));
+                if needs_apostrophe {
+                    result.push_str("n'");
+                } else {
+                    result.push('n');
+                }
+            } else {
+                // ん at end of text
+                result.push('n');
+            }
+            i += 1;
+            continue;
+        }
+
+        // Handle prolonged sound mark (already handled above for standalone, but
+        // single_kana_to_romaji maps ー to "-")
+
+        // Try 2-char digraph: base kana + small kana (e.g., きゃ → kya)
+        if i + 1 < len && is_small_kana(chars[i + 1]) {
+            let base = single_kana_to_romaji(c);
+            let small_key = chars[i + 1];
+            let small_rom = match small_key {
+                // Small y-series
+                'ゃ' | 'ャ' => "ya",
+                'ゅ' | 'ュ' => "yu",
+                'ょ' | 'ョ' => "yo",
+                // Small vowels (extended katakana)
+                'ぁ' | 'ァ' => "a",
+                'ぃ' | 'ィ' => "i",
+                'ぅ' | 'ゥ' => "u",
+                'ぇ' | 'ェ' => "e",
+                'ぉ' | 'ォ' => "o",
+                // Small wa
+                'ゎ' | 'ヮ' => "wa",
+                _ => "",
+            };
+
+            if !small_rom.is_empty() {
+                // For Hepburn: special handling for S/T/Z/H rows with y-series
+                // しゃ→sha, ちゃ→cha, じゃ→ja, ひゃ→hya
+                if !base.is_empty() {
+                    match (base, small_rom) {
+                        // し series → shi + ya → sha (not shiya)
+                        ("shi", "ya") => result.push_str("sha"),
+                        ("shi", "yu") => result.push_str("shu"),
+                        ("shi", "yo") => result.push_str("sho"),
+                        // ち series → chi + ya → cha
+                        ("chi", "ya") => result.push_str("cha"),
+                        ("chi", "yu") => result.push_str("chu"),
+                        ("chi", "yo") => result.push_str("cho"),
+                        // じ series → ji + ya → ja
+                        ("ji", "ya") => result.push_str("ja"),
+                        ("ji", "yu") => result.push_str("ju"),
+                        ("ji", "yo") => result.push_str("jo"),
+                        // ひ series → hi + ya → hya
+                        ("hi", "ya") => result.push_str("hya"),
+                        ("hi", "yu") => result.push_str("hyu"),
+                        ("hi", "yo") => result.push_str("hyo"),
+                        // ふ series → fu + a → fa, fu+i→fi, etc.
+                        ("fu", "a") => result.push_str("fa"),
+                        ("fu", "i") => result.push_str("fi"),
+                        ("fu", "e") => result.push_str("fe"),
+                        ("fu", "o") => result.push_str("fo"),
+                        // General: strip the last vowel of base and append small rom
+                        // e.g., ka + ya → kya, ki + ya → kya
+                        _ => {
+                            let base_without_last_vowel = if base.len() >= 2 {
+                                // Remove the last vowel: ka→k, ki→k, etc.
+                                &base[..base.len() - 1]
+                            } else {
+                                base
+                            };
+                            result.push_str(base_without_last_vowel);
+                            result.push_str(small_rom);
+                        }
+                    }
+                    i += 2;
+                    continue;
+                }
+            }
+        }
+
+        // Single character: look up or pass through
+        let romaji = single_kana_to_romaji(c);
+        if romaji.is_empty() {
+            result.push(c);
+        } else {
+            result.push_str(romaji);
+        }
+        i += 1;
+    }
+
+    result
+}
+
 /// Map a half-width ASCII alphanumeric character (digit / Latin letter) to
 /// its full-width form (e.g. `a` → `ａ`, `Z` → `Ｚ`, `5` → `５`). All other
 /// characters pass through unchanged.

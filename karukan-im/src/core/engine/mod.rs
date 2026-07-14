@@ -7,6 +7,7 @@ mod chunk;
 mod conversion;
 mod cursor;
 mod display;
+mod fkeys;
 mod init;
 mod input;
 mod input_buffer;
@@ -488,6 +489,14 @@ impl InputMethodEngine {
             && (key.keysym == Keysym::KEY_L || key.keysym == Keysym::KEY_L_UPPER)
         {
             return self.toggle_live_conversion();
+        }
+
+        // F6-F10: function key conversion (convert composing/conversion text
+        // to hiragana, katakana, half-width katakana, full/half alphanumeric).
+        // Handles Empty (pass through), Composing, and Conversion states.
+        if let Some(result) = self.handle_fkey(key) {
+            self.metrics.process_key_ms = 0; // no conversion time to report
+            return result;
         }
 
         // Reset adaptive model flag when starting a new word (first key in Empty state)
