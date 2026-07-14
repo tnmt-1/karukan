@@ -518,6 +518,14 @@ impl InputMethodEngine {
     }
 
     /// Commit any pending input and return the text
+    ///
+    /// Unlike [`commit_composing`](Self::commit_composing), this is the
+    /// "force" commit path used by the macOS `commit` JSON-RPC and the
+    /// fcitx5 `karukan_engine_commit` FFI (called on deactivate / focus
+    /// loss). It MUST restore any temporary mode (emoji, alphabet) back to
+    /// the mode the user was in, exactly like `commit_composing()` does,
+    /// so the next keystroke lands in the expected kana mode even when the
+    /// commit did not go through the Enter-key handler.
     pub fn commit(&mut self) -> String {
         match &self.state {
             InputState::Empty => String::new(),
@@ -535,8 +543,15 @@ impl InputMethodEngine {
                 self.converters.romaji.reset();
                 self.input_buf.clear();
                 self.live.text.clear();
+                self.chunks.clear();
                 self.state = InputState::Empty;
                 self.surrounding_context = None;
+                // Temporary modes (emoji, alphabet) must be restored so the
+                // next keystroke lands in the expected kana mode even when
+                // commit() was called through the RPC/FFI path (not via the
+                // Enter-key handler which goes through commit_composing).
+                self.exit_emoji_mode();
+                self.exit_alphabet_mode();
                 text
             }
             InputState::Conversion { candidates, .. } => {
@@ -549,6 +564,10 @@ impl InputMethodEngine {
                 self.input_buf.clear();
                 self.state = InputState::Empty;
                 self.surrounding_context = None;
+                // Restore temporary modes here too, for the same reason as
+                // the Composing branch above (safety net).
+                self.exit_emoji_mode();
+                self.exit_alphabet_mode();
                 text
             }
         }

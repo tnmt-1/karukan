@@ -324,6 +324,30 @@ fn test_shift_right_alone_does_not_toggle() {
     assert!(engine.input_mode != InputMode::Alphabet);
 }
 
+/// Verify that commit() called via the RPC/FFI path (not process_key(Enter))
+/// also restores the prior mode, exactly as commit_composing does.
+/// commit() is used by the macOS `commit` JSON-RPC and fcitx5
+/// `karukan_engine_commit` — both must exit alphabet mode.
+#[test]
+fn test_commit_rpc_exits_alphabet_mode() {
+    let mut engine = InputMethodEngine::new();
+
+    // Enter alphabet mode via Shift+H from the default Hiragana mode
+    engine.process_key(&press_shift('H'));
+    assert!(engine.input_mode == InputMode::Alphabet);
+
+    // Type and commit via commit() (the RPC/FFI path)
+    engine.process_key(&press('i'));
+    let text = engine.commit();
+    assert_eq!(text, "Hi");
+    assert!(matches!(engine.state(), InputState::Empty));
+
+    // commit() must restore Hiragana, same as commit_composing()
+    assert!(engine.input_mode == InputMode::Hiragana);
+    engine.process_key(&press('a'));
+    assert_eq!(engine.preedit().unwrap().text(), "あ");
+}
+
 #[test]
 fn test_reset_clears_alphabet_mode() {
     let mut engine = InputMethodEngine::new();
