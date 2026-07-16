@@ -62,10 +62,27 @@ impl InputMethodEngine {
                 self.flush_romaji_to_composed();
                 self.input_buf.text.clone()
             }
-            InputState::Conversion { candidates, .. } => candidates
-                .selected_text()
-                .map(|s| s.to_string())
-                .unwrap_or_default(),
+            InputState::Conversion {
+                candidates,
+                full_reading,
+                range_start,
+                range_end,
+                ..
+            } => {
+                let selected = candidates
+                    .selected_text()
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                let full_len = full_reading.chars().count();
+                if *range_start == 0 && *range_end == full_len {
+                    selected
+                } else {
+                    let chars: Vec<char> = full_reading.chars().collect();
+                    let before: String = chars[..*range_start].iter().collect();
+                    let after: String = chars[*range_end..].iter().collect();
+                    format!("{}{}{}", before, selected, after)
+                }
+            }
             _ => return Some(EngineResult::not_consumed()),
         };
 

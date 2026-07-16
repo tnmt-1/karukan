@@ -49,6 +49,9 @@ fn conversion_engine(reading: &str, candidates: Vec<&str>) -> InputMethodEngine 
             selected_text.chars().count(),
         ),
         candidates: candidate_list,
+        full_reading: reading.to_string(),
+        range_start: 0,
+        range_end: reading.chars().count(),
     };
     engine
 }

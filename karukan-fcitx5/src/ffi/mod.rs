@@ -46,6 +46,25 @@ pub(crate) use ffi_ref;
 
 use karukan_im::config::Settings;
 use karukan_im::core::engine::{EngineAction, EngineConfig, InputMethodEngine};
+use karukan_im::core::preedit::AttributeType;
+
+/// Convert a Unicode scalar (char) offset into a UTF-8 byte offset.
+fn char_offset_to_bytes(text: &str, char_offset: usize) -> usize {
+    text.char_indices()
+        .nth(char_offset)
+        .map(|(i, _)| i)
+        .unwrap_or(text.len())
+}
+
+/// Map engine `AttributeType` to the C FFI style constants in `karukan.h`.
+fn attribute_style_to_u32(attr: AttributeType) -> u32 {
+    match attr {
+        AttributeType::Underline => 0,
+        AttributeType::UnderlineDouble => 1,
+        AttributeType::Highlight => 2,
+        AttributeType::Reverse => 3,
+    }
+}
 
 static INIT_LOGGING: Once = Once::new();
 
@@ -61,11 +80,24 @@ fn init_logging() {
     });
 }
 
-/// Cached preedit text and caret position for FFI consumption.
+/// One preedit attribute, with byte offsets matching the caret convention.
+#[derive(Clone, Copy, Default)]
+struct PreeditAttrCache {
+    /// Start offset in UTF-8 bytes (inclusive).
+    start_bytes: u32,
+    /// End offset in UTF-8 bytes (exclusive).
+    end_bytes: u32,
+    /// Style matching `AttributeType` discriminant:
+    /// 0=Underline, 1=UnderlineDouble, 2=Highlight, 3=Reverse.
+    style: u32,
+}
+
+/// Cached preedit text, caret, and per-segment attributes for FFI consumption.
 #[derive(Default)]
 struct PreeditCache {
     text: CString,
     caret_bytes: u32,
+    attrs: Vec<PreeditAttrCache>,
     dirty: bool,
 }
 
@@ -147,15 +179,19 @@ impl KarukanEngine {
         for action in actions {
             match action {
                 EngineAction::UpdatePreedit(preedit) => {
-                    let caret_chars = preedit.caret();
-                    let caret_bytes = preedit
-                        .text()
-                        .char_indices()
-                        .nth(caret_chars)
-                        .map(|(i, _)| i)
-                        .unwrap_or(preedit.text().len());
+                    let text = preedit.text();
+                    let caret_bytes = char_offset_to_bytes(text, preedit.caret());
                     self.preedit.caret_bytes = caret_bytes as u32;
-                    self.preedit.text = CString::new(preedit.text()).unwrap_or_default();
+                    self.preedit.attrs = preedit
+                        .attributes()
+                        .iter()
+                        .map(|a| PreeditAttrCache {
+                            start_bytes: char_offset_to_bytes(text, a.start) as u32,
+                            end_bytes: char_offset_to_bytes(text, a.end) as u32,
+                            style: attribute_style_to_u32(a.attr_type),
+                        })
+                        .collect();
+                    self.preedit.text = CString::new(text).unwrap_or_default();
                     self.preedit.dirty = true;
                 }
                 EngineAction::ShowCandidates(candidates) => {

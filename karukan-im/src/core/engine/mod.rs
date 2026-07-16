@@ -548,17 +548,37 @@ impl InputMethodEngine {
                 self.surrounding_context = None;
                 text
             }
-            InputState::Conversion { candidates, .. } => {
+            InputState::Conversion {
+                candidates,
+                full_reading,
+                range_start,
+                range_end,
+                ..
+            } => {
                 let text = candidates.selected_text().unwrap_or("").to_string();
+                // Clone range info before any mutable self access
+                let fr = full_reading.clone();
+                let rs = *range_start;
+                let re = *range_end;
                 let reading = candidates.selected().and_then(|c| c.reading.clone());
                 // Record conversion result in learning cache
                 if let Some(reading) = &reading {
                     self.record_learning(reading, &text);
                 }
+                // In narrowed range mode, combine converted and pending text
+                let full_len = fr.chars().count();
+                let commit_text = if (rs == 0 && re == full_len) || fr.is_empty() {
+                    text.clone()
+                } else {
+                    let chars: Vec<char> = fr.chars().collect();
+                    let before: String = chars[..rs].iter().collect();
+                    let after: String = chars[re..].iter().collect();
+                    format!("{}{}{}", before, text, after)
+                };
                 self.input_buf.clear();
                 self.state = InputState::Empty;
                 self.surrounding_context = None;
-                text
+                commit_text
             }
         }
     }

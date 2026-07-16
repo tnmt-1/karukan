@@ -205,15 +205,40 @@ void KarukanState::updateUI() {
         inputPanel.reset();
     }
 
-    // Set preedit (new input after commit, or a regular update)
+    // Set preedit (new input after commit, or a regular update).
+    // When the engine provides per-segment attributes (e.g. narrowed conversion
+    // range), render the active segment with HighLight+Underline and inactive
+    // segments with Underline only — same convention as fcitx5-skk / Mozc.
     if (karukan_engine_has_preedit(rustEngine_)) {
         const char* preeditText = karukan_engine_get_preedit(rustEngine_);
         uint32_t preeditLen = karukan_engine_get_preedit_len(rustEngine_);
         uint32_t preeditCaret = karukan_engine_get_preedit_caret(rustEngine_);
+        uint32_t attrCount = karukan_engine_get_preedit_attr_count(rustEngine_);
 
         Text preedit;
         if (preeditText && preeditLen > 0) {
-            preedit.append(std::string(preeditText, preeditLen), TextFormatFlag::Underline);
+            if (attrCount == 0) {
+                preedit.append(std::string(preeditText, preeditLen), TextFormatFlag::Underline);
+            } else {
+                for (uint32_t i = 0; i < attrCount; ++i) {
+                    uint32_t start = karukan_engine_get_preedit_attr_start(rustEngine_, i);
+                    uint32_t end = karukan_engine_get_preedit_attr_end(rustEngine_, i);
+                    uint32_t style = karukan_engine_get_preedit_attr_style(rustEngine_, i);
+                    if (start >= preeditLen || end <= start) {
+                        continue;
+                    }
+                    if (end > preeditLen) {
+                        end = preeditLen;
+                    }
+                    TextFormatFlags flags = TextFormatFlag::Underline;
+                    if (style == KARUKAN_PREEDIT_ATTR_HIGHLIGHT ||
+                        style == KARUKAN_PREEDIT_ATTR_UNDERLINE_DOUBLE ||
+                        style == KARUKAN_PREEDIT_ATTR_REVERSE) {
+                        flags = {TextFormatFlag::HighLight, TextFormatFlag::Underline};
+                    }
+                    preedit.append(std::string(preeditText + start, end - start), flags);
+                }
+            }
             preedit.setCursor(static_cast<int>(preeditCaret));
         }
 

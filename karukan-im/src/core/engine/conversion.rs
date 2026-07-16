@@ -254,6 +254,7 @@ impl InputMethodEngine {
     /// Sets up the preedit (highlighted selected text), updates the state, and
     /// returns an EngineResult with preedit, candidates, and aux text actions.
     fn enter_conversion_state(&mut self, reading: &str, candidates: CandidateList) -> EngineResult {
+        let full_len = reading.chars().count();
         let selected_text = candidates.selected_text().unwrap_or(reading).to_string();
 
         let preedit = Preedit::from_segments(
@@ -264,6 +265,9 @@ impl InputMethodEngine {
         self.state = InputState::Conversion {
             preedit: preedit.clone(),
             candidates: candidates.clone(),
+            full_reading: reading.to_string(),
+            range_start: 0,
+            range_end: full_len,
         };
 
         EngineResult::consumed()
@@ -573,8 +577,150 @@ impl InputMethodEngine {
             .collect()
     }
 
+    /// Build a preedit that shows inactive parts as plain underlined hiragana
+    /// and the active conversion range as highlighted.
+    fn build_range_preedit(
+        &self,
+        full_reading: &str,
+        selected_text: &str,
+        range_start: usize,
+        range_end: usize,
+    ) -> Preedit {
+        let chars: Vec<char> = full_reading.chars().collect();
+        let before: String = chars[..range_start].iter().collect();
+        let after: String = chars[range_end..].iter().collect();
+
+        if before.is_empty() && after.is_empty() {
+            Preedit::from_segments(
+                vec![PreeditSegment::highlighted(selected_text)],
+                selected_text.chars().count(),
+            )
+        } else {
+            let caret = before.chars().count() + selected_text.chars().count();
+            let mut segments = Vec::new();
+            if !before.is_empty() {
+                segments.push(PreeditSegment::new(&before, AttributeType::Underline));
+            }
+            segments.push(PreeditSegment::highlighted(selected_text));
+            if !after.is_empty() {
+                segments.push(PreeditSegment::new(&after, AttributeType::Underline));
+            }
+            Preedit::from_segments(segments, caret)
+        }
+    }
+
+    /// Rebuild the candidate list for a (sub-)reading during range adjustment.
+    fn rebuild_range_candidates(&mut self, reading: &str) -> CandidateList {
+        let annotated =
+            self.build_conversion_candidates(reading, self.config.num_candidates, false);
+        CandidateList::new(
+            annotated
+                .into_iter()
+                .map(|ac| {
+                    let cand_reading = ac.reading.unwrap_or_else(|| reading.to_string());
+                    let label = ac.source.label();
+                    Candidate {
+                        text: ac.text,
+                        reading: Some(cand_reading),
+                        source_label: (!label.is_empty()).then(|| label.to_string()),
+                        description: ac.description,
+                    }
+                })
+                .collect(),
+        )
+    }
+
+    /// Apply a new conversion range, rebuilding candidates and preedit.
+    ///
+    /// Mozc / MS-IME style: the left edge (`range_start`) stays fixed and
+    /// Shift+←/→ move only the right edge (`range_end`).
+    fn apply_conversion_range(
+        &mut self,
+        full_reading: String,
+        range_start: usize,
+        range_end: usize,
+    ) -> EngineResult {
+        let sub_reading: String = full_reading
+            .chars()
+            .skip(range_start)
+            .take(range_end - range_start)
+            .collect();
+        let candidates = self.rebuild_range_candidates(&sub_reading);
+        let selected_text = candidates
+            .selected_text()
+            .unwrap_or(&sub_reading)
+            .to_string();
+        let preedit =
+            self.build_range_preedit(&full_reading, &selected_text, range_start, range_end);
+
+        self.state = InputState::Conversion {
+            preedit: preedit.clone(),
+            candidates: candidates.clone(),
+            full_reading,
+            range_start,
+            range_end,
+        };
+
+        EngineResult::consumed()
+            .with_action(EngineAction::UpdatePreedit(preedit))
+            .with_action(EngineAction::ShowCandidates(candidates.clone()))
+            .with_action(EngineAction::UpdateAuxText(
+                self.format_aux_conversion_with_page(&sub_reading, Some(&candidates)),
+            ))
+    }
+
+    /// Shrink the conversion range from the right (Shift+←):
+    /// decreases `range_end` by one.
+    fn shrink_conversion_range(&mut self) -> EngineResult {
+        let (full_reading, range_start, range_end) = match &self.state {
+            InputState::Conversion {
+                full_reading,
+                range_start,
+                range_end,
+                ..
+            } => (full_reading.clone(), *range_start, *range_end),
+            _ => return EngineResult::not_consumed(),
+        };
+
+        if range_end <= range_start + 1 {
+            return EngineResult::consumed();
+        }
+
+        self.apply_conversion_range(full_reading, range_start, range_end - 1)
+    }
+
+    /// Expand the conversion range to the right (Shift+→):
+    /// increases `range_end` by one, up to the end of `full_reading`.
+    fn expand_conversion_range(&mut self) -> EngineResult {
+        let (full_reading, range_start, range_end) = match &self.state {
+            InputState::Conversion {
+                full_reading,
+                range_start,
+                range_end,
+                ..
+            } => (full_reading.clone(), *range_start, *range_end),
+            _ => return EngineResult::not_consumed(),
+        };
+
+        let full_len = full_reading.chars().count();
+        if range_end >= full_len {
+            return EngineResult::consumed();
+        }
+
+        self.apply_conversion_range(full_reading, range_start, range_end + 1)
+    }
+
     /// Process key in conversion state
     pub(super) fn process_key_conversion(&mut self, key: &KeyEvent) -> EngineResult {
+        // Shift+←/→: resize conversion range (right edge only, Mozc/MS-IME style)
+        if key.modifiers.shift_key {
+            match key.keysym {
+                Keysym::LEFT => return self.shrink_conversion_range(),
+                Keysym::RIGHT => return self.expand_conversion_range(),
+                _ => {}
+            }
+        }
+
         match key.keysym {
             Keysym::RETURN => self.commit_conversion(),
             Keysym::ESCAPE => self.cancel_conversion(),
@@ -630,7 +776,12 @@ impl InputMethodEngine {
         }
     }
 
-    /// Commit the current conversion
+    /// Commit the current conversion (or the active range in range mode).
+    ///
+    /// When the conversion range has been narrowed (Shift+←/→), only the
+    /// active segment is committed. The remaining (non-active) parts of the
+    /// reading are put back into the composing buffer so the user sees
+    /// auto-suggest candidates for the leftover text immediately.
     fn commit_conversion(&mut self) -> EngineResult {
         let Some((text, reading)) = self.selected_conversion_info() else {
             return EngineResult::not_consumed();
@@ -639,6 +790,20 @@ impl InputMethodEngine {
         if text.is_empty() {
             return EngineResult::consumed();
         }
+
+        // Check if we're in narrowed range mode
+        let (range_start, range_end, full_reading) = match &self.state {
+            InputState::Conversion {
+                full_reading,
+                range_start,
+                range_end,
+                ..
+            } => (*range_start, *range_end, full_reading.clone()),
+            _ => return EngineResult::not_consumed(),
+        };
+
+        let full_len = full_reading.chars().count();
+        let is_partial = range_start != 0 || range_end != full_len;
 
         // Skip learning when the buffer is a `:shortcode` query — the
         // reading would be e.g. `:smile`, which isn't a hiragana key
@@ -650,26 +815,68 @@ impl InputMethodEngine {
         }
 
         self.state = InputState::Empty;
-        self.input_buf.text.clear();
-        self.exit_emoji_mode();
-        self.exit_alphabet_mode();
 
-        EngineResult::consumed()
-            .with_action(EngineAction::HideCandidates)
-            .with_action(EngineAction::HideAuxText)
-            .with_action(EngineAction::Commit(text))
+        if is_partial && !full_reading.is_empty() {
+            // Narrowed range: commit only the active segment, keep the rest
+            let chars: Vec<char> = full_reading.chars().collect();
+            let before: String = chars[..range_start].iter().collect();
+            let after: String = chars[range_end..].iter().collect();
+            self.input_buf.text = format!("{}{}", before, after);
+            self.input_buf.cursor_pos = before.chars().count();
+            self.exit_emoji_mode();
+            self.exit_alphabet_mode();
+
+            // Re-enter composing for the remaining text, showing auto-suggest
+            if !self.input_buf.text.is_empty() {
+                let mut result = EngineResult::consumed()
+                    .with_action(EngineAction::Commit(text))
+                    .with_action(EngineAction::HideCandidates);
+                let refresh = self.refresh_input_state();
+                result.actions.extend(refresh.actions);
+                result
+            } else {
+                EngineResult::consumed()
+                    .with_action(EngineAction::Commit(text))
+                    .with_action(EngineAction::HideCandidates)
+                    .with_action(EngineAction::HideAuxText)
+            }
+        } else {
+            // Full range: existing behavior — clear everything
+            self.input_buf.text.clear();
+            self.exit_emoji_mode();
+            self.exit_alphabet_mode();
+
+            EngineResult::consumed()
+                .with_action(EngineAction::HideCandidates)
+                .with_action(EngineAction::HideAuxText)
+                .with_action(EngineAction::Commit(text))
+        }
     }
 
-    /// Commit current conversion and then process a new character as fresh input
+    /// Commit current conversion and then process a new character as fresh input.
+    ///
+    /// In narrowed range mode, the whole buffer (converted + pending hiragana)
+    /// is committed as a single string, matching standard IME behavior where
+    /// typing a printable character during conversion finalises everything.
     fn commit_conversion_and_continue(&mut self, ch: char) -> EngineResult {
-        let Some((text, reading)) = self.selected_conversion_info() else {
+        let Some((text, _reading)) = self.selected_conversion_info() else {
             return EngineResult::not_consumed();
         };
 
+        // Build the full commit text (range-aware)
+        let commit_text = self.build_full_commit_text(&text);
+
+        // Use the selected candidate's reading (sub-range) for learning
+        let reading_for_learning = match &self.state {
+            InputState::Conversion { candidates, .. } => {
+                candidates.selected().and_then(|c| c.reading.clone())
+            }
+            _ => None,
+        };
         if self.input_mode != InputMode::Emoji
-            && let Some(reading) = &reading
+            && let Some(r) = &reading_for_learning
         {
-            self.record_learning(reading, &text);
+            self.record_learning(r, &text);
         }
 
         self.state = InputState::Empty;
@@ -682,18 +889,51 @@ impl InputMethodEngine {
 
         // Combine: commit first, then new input actions
         let mut result = EngineResult::consumed()
-            .with_action(EngineAction::Commit(text))
+            .with_action(EngineAction::Commit(commit_text))
             .with_action(EngineAction::HideCandidates);
         result.actions.extend(new_input_result.actions);
         result
     }
 
-    /// Cancel conversion and return to hiragana
+    /// Build the full text to commit, combining converted active range with
+    /// pending hiragana segments when in narrowed range mode.
+    fn build_full_commit_text(&self, converted_text: &str) -> String {
+        match &self.state {
+            InputState::Conversion {
+                full_reading,
+                range_start,
+                range_end,
+                ..
+            } => {
+                let full_len = full_reading.chars().count();
+                if *range_start == 0 && *range_end == full_len {
+                    converted_text.to_string()
+                } else {
+                    let chars: Vec<char> = full_reading.chars().collect();
+                    let before: String = chars[..*range_start].iter().collect();
+                    let after: String = chars[*range_end..].iter().collect();
+                    format!("{}{}{}", before, converted_text, after)
+                }
+            }
+            _ => converted_text.to_string(),
+        }
+    }
+
+    /// Cancel conversion and return to hiragana.
+    ///
+    /// Restores the full reading (including any segments that were outside
+    /// the narrowed conversion range) so no input is lost on Escape.
     pub(super) fn cancel_conversion(&mut self) -> EngineResult {
         if !matches!(self.state, InputState::Conversion { .. }) {
             return EngineResult::not_consumed();
         }
-        let reading = self.input_buf.text.clone();
+
+        let reading = match &self.state {
+            InputState::Conversion { full_reading, .. } if !full_reading.is_empty() => {
+                full_reading.clone()
+            }
+            _ => self.input_buf.text.clone(),
+        };
 
         if reading.is_empty() {
             self.state = InputState::Empty;
@@ -767,7 +1007,10 @@ impl InputMethodEngine {
         result
     }
 
-    /// Select candidate by digit (1-9)
+    /// Select candidate by digit (1-9).
+    ///
+    /// In range mode, commits only the active segment and keeps the
+    /// remaining text in composing state (same as `commit_conversion`).
     fn select_candidate_by_digit(&mut self, digit: usize) -> EngineResult {
         let (selected_text, reading) = {
             let candidates = match self.state.candidates_mut() {
@@ -789,28 +1032,92 @@ impl InputMethodEngine {
             self.record_learning(reading, &selected_text);
         }
 
-        // Commit immediately after digit selection
+        // Check if we're in narrowed range mode
+        let (range_start, range_end, full_reading) = match &self.state {
+            InputState::Conversion {
+                full_reading,
+                range_start,
+                range_end,
+                ..
+            } => (*range_start, *range_end, full_reading.clone()),
+            _ => return EngineResult::not_consumed(),
+        };
 
-        self.state = InputState::Empty;
+        let full_len = full_reading.chars().count();
+        let is_partial = range_start != 0 || range_end != full_len;
 
-        EngineResult::consumed()
-            .with_action(EngineAction::HideCandidates)
-            .with_action(EngineAction::HideAuxText)
-            .with_action(EngineAction::Commit(selected_text))
+        if is_partial && !full_reading.is_empty() && !selected_text.is_empty() {
+            // Narrowed mode: commit active segment, re-enter composing for the rest
+            let chars: Vec<char> = full_reading.chars().collect();
+            let before: String = chars[..range_start].iter().collect();
+            let after: String = chars[range_end..].iter().collect();
+
+            self.state = InputState::Empty;
+            self.input_buf.text = format!("{}{}", before, after);
+            self.input_buf.cursor_pos = before.chars().count();
+
+            let mut result = EngineResult::consumed()
+                .with_action(EngineAction::Commit(selected_text))
+                .with_action(EngineAction::HideCandidates);
+            if !self.input_buf.text.is_empty() {
+                let refresh = self.refresh_input_state();
+                result.actions.extend(refresh.actions);
+            } else {
+                result = result.with_action(EngineAction::HideAuxText);
+            }
+            result
+        } else {
+            // Full range: existing immediate-commit behavior
+            self.state = InputState::Empty;
+            EngineResult::consumed()
+                .with_action(EngineAction::HideCandidates)
+                .with_action(EngineAction::HideAuxText)
+                .with_action(EngineAction::Commit(selected_text))
+        }
     }
 
-    /// Update preedit after candidate selection change
+    /// Update preedit after candidate selection change.
+    ///
+    /// In range mode, uses `build_range_preedit` to show inactive segments
+    /// as plain underlined hiragana alongside the highlighted active segment.
     fn update_conversion_preedit(
         &mut self,
         selected_text: &str,
         candidates: &CandidateList,
     ) -> EngineResult {
-        let mut preedit = Preedit::with_text(selected_text);
-        preedit.set_attributes(vec![PreeditAttribute::new(
-            0,
-            selected_text.chars().count(),
-            AttributeType::Highlight,
-        )]);
+        let (full_reading, range_start, range_end) = match &self.state {
+            InputState::Conversion {
+                full_reading,
+                range_start,
+                range_end,
+                ..
+            } => (full_reading.clone(), *range_start, *range_end),
+            _ => {
+                // Fallback (shouldn't happen): simple highlighted preedit
+                let mut preedit = Preedit::with_text(selected_text);
+                preedit.set_attributes(vec![PreeditAttribute::new(
+                    0,
+                    selected_text.chars().count(),
+                    AttributeType::Highlight,
+                )]);
+                if let Some(p) = self.state.preedit_mut() {
+                    *p = preedit.clone();
+                }
+                let reading = candidates
+                    .selected()
+                    .and_then(|c| c.reading.as_deref())
+                    .unwrap_or("");
+                return EngineResult::consumed()
+                    .with_action(EngineAction::UpdatePreedit(preedit))
+                    .with_action(EngineAction::ShowCandidates(candidates.clone()))
+                    .with_action(EngineAction::UpdateAuxText(
+                        self.format_aux_conversion_with_page(reading, Some(candidates)),
+                    ));
+            }
+        };
+
+        let preedit =
+            self.build_range_preedit(&full_reading, selected_text, range_start, range_end);
 
         if let Some(p) = self.state.preedit_mut() {
             *p = preedit.clone();

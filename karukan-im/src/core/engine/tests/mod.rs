@@ -8,6 +8,7 @@ mod basic;
 mod candidates;
 mod chunks;
 mod conversion;
+mod conversion_range;
 mod cursor;
 mod emoji;
 mod fkeys;

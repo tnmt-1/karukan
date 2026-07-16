@@ -8,10 +8,15 @@ use std::ptr;
 // XKB keysyms for common keys
 const XKB_KEY_A: u32 = 0x61;
 const XKB_KEY_I: u32 = 0x69;
+const XKB_KEY_U: u32 = 0x75;
+const XKB_KEY_E: u32 = 0x65;
+const XKB_KEY_O: u32 = 0x6f;
 const XKB_KEY_K: u32 = 0x6b;
 const XKB_KEY_RETURN: u32 = 0xff0d;
 const XKB_KEY_ESCAPE: u32 = 0xff1b;
 const XKB_KEY_BACKSPACE: u32 = 0xff08;
+const XKB_KEY_SPACE: u32 = 0x0020;
+const XKB_KEY_LEFT: u32 = 0xff51;
 const XKB_KEY_SHIFT_L: u32 = 0xffe1;
 const XKB_KEY_LOWER_L: u32 = 0x6c;
 const SHIFT_MASK: u32 = karukan_im::core::keycode::KeyModifiers::SHIFT_MASK;
@@ -120,6 +125,10 @@ fn test_null_engine_safety() {
     assert_eq!(karukan_engine_has_preedit(ptr::null()), 0);
     assert!(karukan_engine_get_preedit(ptr::null()).is_null());
     assert_eq!(karukan_engine_get_preedit_len(ptr::null()), 0);
+    assert_eq!(karukan_engine_get_preedit_attr_count(ptr::null()), 0);
+    assert_eq!(karukan_engine_get_preedit_attr_start(ptr::null(), 0), 0);
+    assert_eq!(karukan_engine_get_preedit_attr_end(ptr::null(), 0), 0);
+    assert_eq!(karukan_engine_get_preedit_attr_style(ptr::null(), 0), 0);
     assert_eq!(karukan_engine_has_commit(ptr::null()), 0);
     assert!(karukan_engine_get_commit(ptr::null()).is_null());
     assert_eq!(karukan_engine_has_candidates(ptr::null()), 0);
@@ -498,4 +507,79 @@ fn test_ffi_standalone_shift_does_not_toggle_mode() {
         "あ",
         "After standalone Shift, 'a' should still produce hiragana"
     );
+}
+
+#[test]
+fn test_preedit_attrs_on_composing() {
+    let e = TestEngine::new();
+    disable_live_conversion(&e);
+
+    e.press(XKB_KEY_A);
+    assert!(e.has_preedit());
+    // Composing hiragana is a single underlined segment
+    assert_eq!(karukan_engine_get_preedit_attr_count(e.ptr()), 1);
+    assert_eq!(karukan_engine_get_preedit_attr_start(e.ptr(), 0), 0);
+    assert_eq!(
+        karukan_engine_get_preedit_attr_end(e.ptr(), 0),
+        e.preedit_len()
+    );
+    assert_eq!(
+        karukan_engine_get_preedit_attr_style(e.ptr(), 0),
+        0 // KARUKAN_PREEDIT_ATTR_UNDERLINE
+    );
+}
+
+#[test]
+fn test_preedit_attrs_after_range_narrow() {
+    let e = TestEngine::new();
+    disable_live_conversion(&e);
+
+    // Type あいうえお and enter conversion
+    for key in [XKB_KEY_A, XKB_KEY_I, XKB_KEY_U, XKB_KEY_E, XKB_KEY_O] {
+        e.press(key);
+    }
+    assert!(e.press(XKB_KEY_SPACE));
+    assert!(e.has_candidates());
+
+    // Full-range conversion: single highlighted segment
+    assert_eq!(karukan_engine_get_preedit_attr_count(e.ptr()), 1);
+    assert_eq!(
+        karukan_engine_get_preedit_attr_style(e.ptr(), 0),
+        2 // KARUKAN_PREEDIT_ATTR_HIGHLIGHT
+    );
+
+    // Shift+←: narrow from the right → highlight + trailing underline
+    assert!(e.press_with(XKB_KEY_LEFT, SHIFT_MASK));
+    let attr_count = karukan_engine_get_preedit_attr_count(e.ptr());
+    assert!(
+        attr_count >= 2,
+        "narrowed range should expose at least highlight + underline segments, got {attr_count}"
+    );
+
+    let styles: Vec<u32> = (0..attr_count)
+        .map(|i| karukan_engine_get_preedit_attr_style(e.ptr(), i))
+        .collect();
+    assert!(
+        styles.contains(&2),
+        "expected a highlight segment, styles={styles:?}"
+    );
+    assert!(
+        styles.contains(&0),
+        "expected an underline segment for pending hiragana, styles={styles:?}"
+    );
+
+    // Byte ranges must stay within the preedit and be ordered
+    let len = e.preedit_len();
+    let mut prev_end = 0u32;
+    for i in 0..attr_count {
+        let start = karukan_engine_get_preedit_attr_start(e.ptr(), i);
+        let end = karukan_engine_get_preedit_attr_end(e.ptr(), i);
+        assert!(start <= end, "attr {i}: start={start} end={end}");
+        assert!(end <= len, "attr {i}: end={end} > len={len}");
+        assert!(
+            start >= prev_end,
+            "attr {i}: overlaps previous (prev_end={prev_end})"
+        );
+        prev_end = end;
+    }
 }

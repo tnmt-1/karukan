@@ -20,12 +20,23 @@ pub enum InputState {
         romaji_buffer: String,
     },
 
-    /// Conversion mode - selecting from candidates
+    /// Conversion mode - selecting from candidates.
+    ///
+    /// When the user resizes the conversion range (Shift+← shrinks / Shift+→
+    /// expands the right edge), `full_reading` preserves the untouched parts
+    /// of the buffer while `range_start` / `range_end` track which segment is
+    /// being actively converted.
     Conversion {
         /// The preedit string showing conversion result
         preedit: Preedit,
         /// List of conversion candidates
         candidates: CandidateList,
+        /// Full reading (hiragana) of the entire input buffer.
+        full_reading: String,
+        /// Start of the current conversion range within `full_reading` (char offset).
+        range_start: usize,
+        /// End of the current conversion range within `full_reading` (char offset, exclusive).
+        range_end: usize,
     },
 }
 
