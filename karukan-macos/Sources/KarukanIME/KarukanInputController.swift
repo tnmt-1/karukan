@@ -25,6 +25,7 @@ class KarukanInputController: IMKInputController {
         guard let event else { return false }
         guard event.type == .keyDown else { return false }
         guard let client = sender as? (any IMKTextInput) else { return false }
+        Self.candidateWindow.claimClient(client)
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         // Never swallow Command shortcuts.
@@ -72,11 +73,19 @@ class KarukanInputController: IMKInputController {
 
     // MARK: - Lifecycle
 
+    override func activateServer(_ sender: Any!) {
+        if let client = sender as? (any IMKTextInput) {
+            Self.candidateWindow.claimClient(client)
+        }
+        super.activateServer(sender)
+    }
+
     override func deactivateServer(_ sender: Any!) {
         // Mozc-style: commit the pending preedit on focus loss, then
         // persist what the user taught us.
         if let client = sender as? (any IMKTextInput) {
             flushComposition(client: client)
+            Self.candidateWindow.releaseClient(client)
         } else {
             Self.candidateWindow.hide()
         }
@@ -119,12 +128,26 @@ class KarukanInputController: IMKInputController {
         for action in actions {
             switch action {
             case .updateAux(let text):
-                Self.candidateWindow.setAux(text, deferRender: updatesCandidates)
+                Self.candidateWindow.setAux(text, client: client, deferRender: updatesCandidates)
             case .hideAux:
-                Self.candidateWindow.setAux(nil, deferRender: updatesCandidates)
+                Self.candidateWindow.setAux(nil, client: client, deferRender: updatesCandidates)
             default:
                 break
             }
+        }
+
+        var preeditCaretUTF16: Int?
+        var preeditText: String?
+        for action in actions {
+            if case .updatePreedit(let text, let caret, _) = action {
+                preeditText = text
+                preeditCaretUTF16 = utf16Offset(ofScalarOffset: caret, in: text)
+            }
+        }
+
+        let willShowCandidates = actions.contains {
+            if case .showCandidates = $0 { return true }
+            return false
         }
 
         for action in actions {
@@ -140,23 +163,30 @@ class KarukanInputController: IMKInputController {
             case .updatePreedit(let text, let caret, let attributes):
                 hasPreedit = !text.isEmpty
                 setMarkedText(text: text, caret: caret, attributes: attributes, client: client)
+                // Reposition when only the preedit changed (e.g. live conversion
+                // refresh) so the panel tracks the caret without waiting for
+                // another show_candidates action.
+                if !willShowCandidates, Self.candidateWindow.isVisible,
+                    let cursorRect = compositionLineRect(
+                        client: client,
+                        caretUTF16: utf16Offset(ofScalarOffset: caret, in: text),
+                        preeditUTF16Length: text.utf16.count)
+                {
+                    Self.candidateWindow.reposition(cursorRect: cursorRect, client: client)
+                }
 
             case .showCandidates(let candidates, let cursor, let page, let totalPages):
-                // Query the composition anchor (a synchronous IPC into the
-                // focused app) only when the panel comes on screen; it
-                // doesn't move while the panel stays visible.
-                var cursorRect: NSRect?
-                if !Self.candidateWindow.isVisible {
-                    var lineHeightRect = NSRect.zero
-                    client.attributes(forCharacterIndex: 0, lineHeightRectangle: &lineHeightRect)
-                    cursorRect = lineHeightRect
-                }
+                let cursorRect = compositionLineRect(
+                    client: client,
+                    caretUTF16: preeditCaretUTF16 ?? 0,
+                    preeditUTF16Length: preeditText?.utf16.count ?? 0)
                 Self.candidateWindow.show(
                     candidates: candidates,
                     cursor: cursor,
                     page: page,
                     totalPages: totalPages,
-                    cursorRect: cursorRect
+                    cursorRect: cursorRect,
+                    client: client
                 )
 
             case .hideCandidates:
@@ -210,6 +240,36 @@ class KarukanInputController: IMKInputController {
             text: leftContext,
             cursorPos: leftContext.unicodeScalars.count
         )
+    }
+
+    /// Line-height rectangle for the current marked composition.
+    private func compositionLineRect(
+        client: any IMKTextInput, caretUTF16: Int, preeditUTF16Length: Int
+    ) -> NSRect? {
+        if preeditUTF16Length > 0 {
+            let caretIndex = min(max(caretUTF16, 0), preeditUTF16Length - 1)
+            if let rect = lineHeightRect(client: client, atUTF16: caretIndex) {
+                return rect
+            }
+            if let rect = lineHeightRect(client: client, atUTF16: 0) {
+                return rect
+            }
+        }
+
+        let selected = client.selectedRange()
+        if selected.location != NSNotFound,
+            let rect = lineHeightRect(client: client, atUTF16: selected.location)
+        {
+            return rect
+        }
+        return nil
+    }
+
+    private func lineHeightRect(client: any IMKTextInput, atUTF16 index: Int) -> NSRect? {
+        var lineHeightRect = NSRect.zero
+        client.attributes(forCharacterIndex: max(index, 0), lineHeightRectangle: &lineHeightRect)
+        guard lineHeightRect != .zero else { return nil }
+        return lineHeightRect
     }
 
     private func setMarkedText(

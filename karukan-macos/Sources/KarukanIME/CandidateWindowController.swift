@@ -59,13 +59,38 @@ class CandidateWindowController {
 
     var isVisible: Bool { panel.isVisible }
 
-    /// `cursorRect: nil` reuses the rect from the previous `show` — the
-    /// caller can skip its (synchronous, per-keystroke) client IPC while
-    /// the panel is already on screen, since the composition anchor
-    /// doesn't move mid-composition.
+    /// IMK client that owns the current composition anchor. The panel is
+    /// shared across controller instances, so we must drop stale geometry
+    /// when focus moves to another window.
+    private var anchorClientID: ObjectIdentifier?
+
+    /// Bind the panel to `client`, clearing any state left by a previous client.
+    func claimClient(_ client: AnyObject) {
+        let id = ObjectIdentifier(client)
+        if let current = anchorClientID, current != id {
+            hide()
+        }
+        anchorClientID = id
+    }
+
+    /// Hide the panel when the given client loses focus.
+    func releaseClient(_ client: AnyObject) {
+        if anchorClientID == ObjectIdentifier(client) {
+            hide()
+        }
+    }
+
+    func ownsClient(_ client: AnyObject) -> Bool {
+        anchorClientID == ObjectIdentifier(client)
+    }
+
+    /// `cursorRect: nil` reuses the rect from the previous update for the
+    /// same client only — never from another window's composition.
     func show(
-        candidates: [CandidateItem], cursor: Int, page: Int, totalPages: Int, cursorRect: NSRect?
+        candidates: [CandidateItem], cursor: Int, page: Int, totalPages: Int,
+        cursorRect: NSRect?, client: AnyObject
     ) {
+        claimClient(client)
         pageState = PageState(
             candidates: candidates, cursor: cursor, page: page, totalPages: totalPages)
         render(cursorRect: cursorRect)
@@ -75,7 +100,8 @@ class CandidateWindowController {
     /// Pass `deferRender: true` when a `show`/`hide` follows in the same
     /// action batch, so the panel is rendered once per batch instead of
     /// once for the aux change and again for the candidates.
-    func setAux(_ text: String?, deferRender: Bool = false) {
+    func setAux(_ text: String?, client: AnyObject, deferRender: Bool = false) {
+        guard ownsClient(client) else { return }
         auxText = text
         if !deferRender, panel.isVisible, pageState != nil {
             render(cursorRect: nil)
@@ -84,7 +110,15 @@ class CandidateWindowController {
 
     func hide() {
         pageState = nil
+        lastCursorRect = .zero
+        anchorClientID = nil
         panel.orderOut(nil)
+    }
+
+    /// Move the panel to follow a new composition anchor without rebuilding rows.
+    func reposition(cursorRect: NSRect, client: AnyObject) {
+        guard ownsClient(client), panel.isVisible, pageState != nil else { return }
+        positionPanel(cursorRect: cursorRect)
     }
 
     private func render(cursorRect: NSRect?) {
@@ -172,31 +206,21 @@ class CandidateWindowController {
         let panelHeight = contentSize.height + 8
 
         guard cursorRect != .zero else {
-            panel.setFrame(
-                NSRect(x: 100, y: 100, width: panelWidth, height: panelHeight), display: true)
-            panel.orderFront(nil)
+            // No trustworthy anchor yet — keep hidden rather than flashing at
+            // a stale coordinate from another window.
+            panel.orderOut(nil)
             return
         }
 
-        // Flip above the cursor when the panel would fall off the bottom of
-        // the screen.
-        let showAbove: Bool
-        if let screen = NSScreen.main {
-            showAbove = cursorRect.origin.y - panelHeight < screen.visibleFrame.origin.y
-        } else {
-            showAbove = false
-        }
-
-        let originY: CGFloat
-        if showAbove {
-            originY = cursorRect.origin.y + cursorRect.size.height
-        } else {
-            originY = cursorRect.origin.y - panelHeight
-        }
-
-        panel.setFrame(
-            NSRect(x: cursorRect.origin.x, y: originY, width: panelWidth, height: panelHeight),
-            display: true)
+        let visibleFrame =
+            CandidatePanelPlacement.screen(for: cursorRect)?.visibleFrame ?? NSScreen.main?
+            .visibleFrame ?? .zero
+        let frame = CandidatePanelPlacement.frame(
+            cursorRect: cursorRect,
+            panelSize: NSSize(width: panelWidth, height: panelHeight),
+            visibleFrame: visibleFrame
+        )
+        panel.setFrame(frame, display: true)
         panel.orderFront(nil)
     }
 }
