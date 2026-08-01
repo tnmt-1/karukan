@@ -129,7 +129,26 @@ impl RomajiConverter {
                 // Otherwise, wait for more input
                 return ConversionEvent::Buffered;
             } else {
-                // Convert and keep remainder in buffer
+                // Convert and keep remainder in buffer.
+                // Lone "n" with a longer continuation (e.g. "ny") must stay
+                // buffered: "n" → ん would otherwise fire before
+                // "nyo" → にょ completes. Only convert when the remainder
+                // can no longer complete a longer rule (e.g. "nyq").
+                if search.matched_len == 1 && hiragana == "ん" && search.has_continuation {
+                    let mut node = &self.trie;
+                    let mut on_valid_path = true;
+                    for ch in self.buffer.chars().skip(1) {
+                        if let Some(child) = node.children.get(&ch) {
+                            node = child;
+                        } else {
+                            on_valid_path = false;
+                            break;
+                        }
+                    }
+                    if on_valid_path {
+                        return ConversionEvent::Buffered;
+                    }
+                }
                 self.output.push_str(hiragana);
                 self.buffer.drain(..search.matched_len);
                 return self.convert_with_remainder(hiragana.to_string());
@@ -352,6 +371,62 @@ mod tests {
             conv.push(c);
         });
         assert_eq!(conv.output(), "きゃ");
+    }
+
+    #[test]
+    fn test_single_n_flush_commits_nn() {
+        // Word-final ん: "san" → flush → さん (single n converts on flush,
+        // not as ASCII "n" passthrough).
+        let mut conv = RomajiConverter::new();
+        "san".chars().for_each(|c| {
+            conv.push(c);
+        });
+        assert_eq!(conv.output(), "さ");
+        assert_eq!(conv.buffer(), "n"); // still pending while typing
+        let flushed = conv.flush();
+        assert_eq!(flushed, "ん");
+        assert_eq!(conv.full_text(), "さん");
+
+        // "kon" → こん
+        let mut conv2 = RomajiConverter::new();
+        "kon".chars().for_each(|c| {
+            conv2.push(c);
+        });
+        assert_eq!(conv2.flush(), "ん");
+        assert_eq!(conv2.full_text(), "こん");
+    }
+
+    #[test]
+    fn test_single_n_still_buffers_for_vowel() {
+        // The single-n rule must not break na/ni/…/ny*: longer matches win.
+        let mut conv = RomajiConverter::new();
+        "na".chars().for_each(|c| {
+            conv.push(c);
+        });
+        assert_eq!(conv.output(), "な");
+
+        let mut conv2 = RomajiConverter::new();
+        "nyo".chars().for_each(|c| {
+            conv2.push(c);
+        });
+        assert_eq!(conv2.output(), "にょ");
+
+        // "nn" stays ん (both n's consumed immediately).
+        let mut conv3 = RomajiConverter::new();
+        "nn".chars().for_each(|c| {
+            conv3.push(c);
+        });
+        assert_eq!(conv3.output(), "ん");
+        assert!(conv3.buffer().is_empty());
+
+        // "nyq" can never complete a longer rule: ん converts, "yq"
+        // falls through as before (ん + y + buffered q).
+        let mut conv4 = RomajiConverter::new();
+        "nyq".chars().for_each(|c| {
+            conv4.push(c);
+        });
+        assert_eq!(conv4.output(), "んy");
+        assert_eq!(conv4.buffer(), "q");
     }
 
     #[test]
