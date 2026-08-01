@@ -129,35 +129,9 @@ void KarukanState::keyEvent(KeyEvent& keyEvent) {
         return;
     }
 
-    // Initialize kanji converter on first use (model download + load may take time)
-    if (!engineInitialized_) {
-        // Show loading message before blocking init
-        {
-            auto& inputPanel = ic_->inputPanel();
-            Text aux;
-            aux.append("Karukan: Loading model...");
-            inputPanel.setAuxUp(aux);
-            ic_->updatePreedit();
-            ic_->updateUserInterface(UserInterfaceComponent::InputPanel);
-        }
-
-        int initResult = karukan_engine_init(rustEngine_);
-        engineInitialized_ = true;
-
-        // Clear loading message
-        {
-            auto& inputPanel = ic_->inputPanel();
-            if (initResult == 0) {
-                inputPanel.setAuxUp(Text());
-            } else {
-                Text aux;
-                aux.append("Karukan: Model load failed");
-                inputPanel.setAuxUp(aux);
-            }
-            ic_->updatePreedit();
-            ic_->updateUserInterface(UserInterfaceComponent::InputPanel);
-        }
-    }
+    // Initialize kanji converter on first use if activate() hasn't run yet
+    // (model download + load may take time).
+    initialize();
 
     // Convert key event
     uint32_t keysym = keyEvent.key().sym();
@@ -204,6 +178,39 @@ void KarukanState::keyEvent(KeyEvent& keyEvent) {
     // change engine state and produce UI actions. The has_* flags in the
     // Rust engine guard against unnecessary updates.
     updateUI();
+}
+
+void KarukanState::initialize() {
+    if (!rustEngine_ || engineInitialized_) {
+        return;
+    }
+
+    // Show loading message before blocking init
+    {
+        auto& inputPanel = ic_->inputPanel();
+        Text aux;
+        aux.append("Karukan: Loading model...");
+        inputPanel.setAuxUp(aux);
+        ic_->updatePreedit();
+        ic_->updateUserInterface(UserInterfaceComponent::InputPanel);
+    }
+
+    int initResult = karukan_engine_init(rustEngine_);
+    engineInitialized_ = true;
+
+    // Clear loading message
+    {
+        auto& inputPanel = ic_->inputPanel();
+        if (initResult == 0) {
+            inputPanel.setAuxUp(Text());
+        } else {
+            Text aux;
+            aux.append("Karukan: Model load failed");
+            inputPanel.setAuxUp(aux);
+        }
+        ic_->updatePreedit();
+        ic_->updateUserInterface(UserInterfaceComponent::InputPanel);
+    }
 }
 
 void KarukanState::reset() {
@@ -340,6 +347,11 @@ void KarukanEngine::activate(const InputMethodEntry& entry, InputContextEvent& e
 
     auto* ic = event.inputContext();
     auto* state = ic->propertyFor(&factory_);
+
+    // Initialize the engine (model download/load can take seconds) at focus
+    // time rather than inside the first key event, so typing isn't blocked
+    // mid-sentence (M11).
+    state->initialize();
 
     // Capture surrounding text on activation for accurate context.
     // For apps without SurroundingText capability, this clears the context.

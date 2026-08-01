@@ -60,6 +60,10 @@ public:
     ~KarukanState() override;
 
     void keyEvent(KeyEvent& keyEvent);
+    /// Lazy one-time engine init (model load). Called from activate() so the
+    /// first key event isn't blocked for seconds; keyEvent() falls back to it
+    /// in case a frontend never activates.
+    void initialize();
     void reset();
     void updateUI();
 
