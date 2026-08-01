@@ -518,6 +518,39 @@ impl InputMethodEngine {
             return result;
         }
 
+        // Henkan (変換) key (JIS keyboards): trigger conversion like Space —
+        // start conversion while composing, advance the candidate while
+        // converting, no-op from Empty.
+        if key.keysym == Keysym::HENKAN && !key.modifiers.control_key && !key.modifiers.alt_key {
+            return match &self.state {
+                InputState::Empty => EngineResult::consumed(),
+                InputState::Composing { .. } => self.start_conversion(false),
+                InputState::Conversion { .. } => self.next_candidate(),
+            };
+        }
+
+        // Hiragana_Katakana (かな/カナ) key (JIS keyboards): toggle the kana
+        // input mode both ways (Katakana → Hiragana bakes the preedit first).
+        if key.keysym == Keysym::HIRAGANA_KATAKANA
+            && !key.modifiers.control_key
+            && !key.modifiers.alt_key
+        {
+            if self.input_mode == InputMode::Katakana {
+                self.bake_katakana();
+                self.input_mode = InputMode::Hiragana;
+                self.flush_romaji_to_composed();
+                let aux = self.format_aux_composing();
+                if matches!(self.state, InputState::Composing { .. }) {
+                    let preedit = self.set_composing_state();
+                    return EngineResult::consumed()
+                        .with_action(EngineAction::UpdatePreedit(preedit))
+                        .with_action(EngineAction::UpdateAuxText(aux));
+                }
+                return EngineResult::consumed().with_action(EngineAction::UpdateAuxText(aux));
+            }
+            return self.enter_katakana_mode();
+        }
+
         // Reset adaptive model flag when starting a new word (first key in Empty state)
         if matches!(self.state, InputState::Empty) {
             self.metrics.adaptive_use_light_model = false;

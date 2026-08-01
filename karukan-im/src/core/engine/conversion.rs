@@ -1046,7 +1046,7 @@ impl InputMethodEngine {
     }
 
     /// Select next candidate
-    fn next_candidate(&mut self) -> EngineResult {
+    pub(super) fn next_candidate(&mut self) -> EngineResult {
         self.navigate_candidate(CandidateList::move_next)
     }
 
