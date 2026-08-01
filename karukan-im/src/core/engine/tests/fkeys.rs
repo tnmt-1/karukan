@@ -438,3 +438,49 @@ fn fkey_on_empty_composing_spans_not_consumed() {
     let result = engine.process_key(&press_key(Keysym::F10));
     assert!(!result.consumed);
 }
+
+// --- macOS-standard Ctrl+J/L/; conversion shortcuts (issue #49) ---
+
+#[test]
+fn ctrl_j_converts_to_hiragana_like_f6() {
+    let mut engine = composed_engine("アイウ");
+    let result = engine.process_key(&press_ctrl(Keysym::KEY_J));
+    assert!(result.consumed);
+    assert_eq!(commit_text(&result), Some("あいう"));
+    assert!(matches!(engine.state(), InputState::Empty));
+}
+
+#[test]
+fn ctrl_l_converts_to_fullwidth_alpha_like_f9() {
+    let mut engine = composed_engine("abc");
+    let result = engine.process_key(&press_ctrl(Keysym::KEY_L));
+    assert!(result.consumed);
+    assert_eq!(commit_text(&result), Some("ａｂｃ"));
+    assert!(matches!(engine.state(), InputState::Empty));
+}
+
+#[test]
+fn ctrl_semicolon_converts_to_halfwidth_alpha_like_f10() {
+    let mut engine = composed_engine("ＡＢＣ");
+    let result = engine.process_key(&press_ctrl(Keysym(0x003b)));
+    assert!(result.consumed);
+    assert_eq!(commit_text(&result), Some("ABC"));
+    assert!(matches!(engine.state(), InputState::Empty));
+}
+
+#[test]
+fn ctrl_j_in_empty_state_passes_through() {
+    let mut engine = InputMethodEngine::new();
+    let result = engine.process_key(&press_ctrl(Keysym::KEY_J));
+    assert!(!result.consumed);
+    assert!(matches!(engine.state(), InputState::Empty));
+}
+
+#[test]
+fn ctrl_f6_stays_an_app_shortcut() {
+    // F-keys with Ctrl/Alt modifiers remain app shortcuts; only
+    // Ctrl+J/L/; are conversion bindings.
+    let mut engine = composed_engine("アイウ");
+    let result = engine.process_key(&press_ctrl(Keysym::F6));
+    assert!(!result.consumed);
+}

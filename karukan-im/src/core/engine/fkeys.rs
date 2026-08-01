@@ -28,20 +28,44 @@ impl InputMethodEngine {
     /// - Conversion: transform selected candidate and commit
     /// - Emoji mode: not consumed (f-key semantics don't apply)
     ///
-    /// F-keys with Ctrl or Alt modifiers are not consumed (may be app shortcuts).
+    /// F-keys with Ctrl or Alt modifiers are not consumed (may be app
+    /// shortcuts). The macOS-standard conversion shortcuts Ctrl+J (ひらがな),
+    /// Ctrl+L (全角英数), Ctrl+; (半角英数) are accepted as equivalents of
+    /// F6/F9/F10 (issue #49); Ctrl+K stays the katakana *mode* toggle.
     pub(super) fn handle_fkey(&mut self, key: &KeyEvent) -> Option<EngineResult> {
+        let is_fkey = matches!(
+            key.keysym,
+            Keysym::F6 | Keysym::F7 | Keysym::F8 | Keysym::F9 | Keysym::F10
+        );
+        let is_ctrl_convert = !is_fkey
+            && key.modifiers.control_key
+            && !key.modifiers.alt_key
+            && !key.modifiers.super_key
+            && matches!(
+                key.keysym,
+                Keysym::KEY_J
+                    | Keysym::KEY_J_UPPER
+                    | Keysym::KEY_L
+                    | Keysym::KEY_L_UPPER
+                    | Keysym(0x003b) // ';'
+            );
         let transform = match key.keysym {
             Keysym::F6 => f6_transform,
             Keysym::F7 => f7_transform,
             Keysym::F8 => f8_transform,
             Keysym::F9 => f9_transform,
             Keysym::F10 => f10_transform,
+            Keysym::KEY_J | Keysym::KEY_J_UPPER if is_ctrl_convert => f6_transform,
+            Keysym::KEY_L | Keysym::KEY_L_UPPER if is_ctrl_convert => f9_transform,
+            Keysym(0x003b) if is_ctrl_convert => f10_transform,
             _ => return None,
         };
 
-        // Don't consume function keys with Ctrl or Alt modifiers — they may
-        // be application shortcuts (e.g. Alt+F7 in IDEs, Ctrl+F6 in terminals).
-        if key.modifiers.control_key || key.modifiers.alt_key {
+        // Don't consume F-keys with Ctrl or Alt modifiers — they may
+        // be application shortcuts (e.g. Alt+F7 in IDEs, Ctrl+F6 in
+        // terminals). The Ctrl+J/L/; conversion shortcuts above are the
+        // deliberate exception.
+        if is_fkey && (key.modifiers.control_key || key.modifiers.alt_key) {
             return Some(EngineResult::not_consumed());
         }
 
