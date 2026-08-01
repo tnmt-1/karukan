@@ -154,8 +154,13 @@ void KarukanState::keyEvent(KeyEvent& keyEvent) {
 
     // Capture surrounding text at input start (Empty state) for accurate context.
     // For apps without SurroundingText capability (terminals), this clears
-    // the context so stale data doesn't persist.
+    // the context so stale data doesn't persist. updateSurroundingText()
+    // requests a fresh push from the client — the cached text can otherwise
+    // be stale right after a commit (M12).
     if (karukan_engine_is_empty(rustEngine_) && !isRelease) {
+        if (ic_->capabilityFlags().test(CapabilityFlag::SurroundingText)) {
+            ic_->updateSurroundingText();
+        }
         if (ic_->capabilityFlags().test(CapabilityFlag::SurroundingText) &&
             ic_->surroundingText().isValid()) {
             const auto& surrounding = ic_->surroundingText();
