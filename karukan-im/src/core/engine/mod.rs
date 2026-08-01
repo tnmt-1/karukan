@@ -482,6 +482,14 @@ impl InputMethodEngine {
             return EngineResult::not_consumed();
         }
 
+        // Super/Command-modified keys belong to the OS/DE/app shortcuts
+        // (Super+Space launcher, Super+A select-all, ...) — never consume
+        // them here. The mode-toggle keys (Super_R etc.) were already
+        // handled above and are exempt.
+        if key.modifiers.super_key && !key.keysym.is_mode_toggle_key() {
+            return EngineResult::not_consumed();
+        }
+
         // Only process key presses
         if !key.is_press {
             return EngineResult::not_consumed();

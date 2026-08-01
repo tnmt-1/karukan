@@ -152,20 +152,19 @@ fn double_space_in_empty_hiragana_commits_two_fullwidth_spaces() {
 }
 
 #[test]
-fn space_in_empty_katakana_passes_through() {
-    // Non-Hiragana modes pass the bare Space through to the OS so the
-    // application gets a normal half-width ASCII space.
+fn space_in_empty_katakana_is_fullwidth() {
+    // Katakana mode commits 　 like Hiragana (standard IME convention).
     let mut engine = InputMethodEngine::new();
     engine.input_mode = InputMode::Katakana;
 
     let result = engine.process_key(&press_key(Keysym::SPACE));
-    assert!(!result.consumed);
+    assert!(result.consumed);
     assert!(matches!(engine.state(), InputState::Empty));
-    assert!(
-        result.actions.is_empty(),
-        "expected no actions, got {:?}",
-        result.actions
-    );
+    let committed = result.actions.iter().find_map(|a| match a {
+        EngineAction::Commit(t) => Some(t.clone()),
+        _ => None,
+    });
+    assert_eq!(committed.as_deref(), Some("\u{3000}"));
 }
 
 #[test]

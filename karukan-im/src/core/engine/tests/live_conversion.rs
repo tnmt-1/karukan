@@ -220,17 +220,95 @@ fn test_alphabet_mode_pure_latin_preserves_live_text() {
     assert_eq!(engine.live.text, "AB");
 }
 
+#[test]
+fn test_commit_keeps_pending_romaji_with_live_conversion() {
+    // "san" with live conversion showing さ and a pending n:
+    // Enter must commit さん (live.text + flushed n → ん), never drop the n.
+    let mut engine = make_live_conversion_engine();
+    engine.process_key(&press('s'));
+    engine.process_key(&press('a'));
+    engine.process_key(&press('n'));
+    // Simulate the model result for the composed part (no model in tests).
+    engine.live.text = "さ".to_string();
+
+    let result = engine.process_key(&press_key(Keysym::RETURN));
+    let commit_text = result
+        .actions
+        .iter()
+        .find_map(|a| {
+            if let EngineAction::Commit(t) = a {
+                Some(t.clone())
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    assert_eq!(commit_text, "さん");
+}
+
+#[test]
+fn test_commit_on_focus_loss_keeps_pending_romaji() {
+    // Focus-loss path (engine.commit()) must behave the same: さ + n → さん.
+    let mut engine = make_live_conversion_engine();
+    engine.process_key(&press('s'));
+    engine.process_key(&press('a'));
+    engine.process_key(&press('n'));
+    engine.live.text = "さ".to_string();
+
+    assert_eq!(engine.commit(), "さん");
+}
+
+#[test]
+fn test_mid_buffer_typing_does_not_commit_stale_live_text() {
+    // Regression: with live conversion ON, editing in the middle of the
+    // buffer must not resurrect the converted display (whose caret is
+    // pinned to the end) nor commit stale converted text that drops the
+    // mid-buffer edit.
+    let mut engine = make_live_conversion_engine();
+    for ch in ['a', 'i', 'u', 'e', 'o'] {
+        engine.process_key(&press(ch));
+    }
+    engine.live.text = "会合".to_string(); // simulated model result
+
+    // Move caret into the middle (あいう|えお) → live display clears.
+    engine.process_key(&press_key(Keysym::LEFT));
+    engine.process_key(&press_key(Keysym::LEFT));
+    assert!(engine.live.text.is_empty());
+
+    // Typing mid-buffer must not re-enable the live display.
+    engine.process_key(&press('k'));
+    assert!(
+        engine.live.text.is_empty(),
+        "mid-buffer typing must not resurrect live.text"
+    );
+
+    // Enter commits the reading including the inserted k, nothing dropped.
+    let result = engine.process_key(&press_key(Keysym::RETURN));
+    let commit_text = result
+        .actions
+        .iter()
+        .find_map(|a| {
+            if let EngineAction::Commit(t) = a {
+                Some(t.clone())
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    assert_eq!(commit_text, "あいうkえお");
+}
+
 // --- Ctrl+Space full-width space tests ---
 
 #[test]
-fn test_ctrl_space_inserts_fullwidth_space_in_empty() {
+fn test_ctrl_space_passes_through_in_empty() {
+    // Ctrl+Space from Empty must reach the OS/app (input-source switching
+    // on macOS, IME toggle on Linux) — regression: it inserted 　.
     let mut engine = InputMethodEngine::new();
 
-    // Ctrl+Space in Empty state -> start input with full-width space
     let result = engine.process_key(&press_ctrl(Keysym::SPACE));
-    assert!(result.consumed);
-    assert!(matches!(engine.state(), InputState::Composing { .. }));
-    assert_eq!(engine.preedit().unwrap().text(), "\u{3000}");
+    assert!(!result.consumed);
+    assert!(matches!(engine.state(), InputState::Empty));
 }
 
 #[test]

@@ -127,15 +127,18 @@ impl InputMethodEngine {
 
     /// Process key in empty state
     pub(super) fn process_key_empty(&mut self, key: &KeyEvent, shift_active: bool) -> EngineResult {
-        // Ctrl+Space: start input with full-width space
-        if key.modifiers.control_key && key.keysym == Keysym::SPACE {
-            self.converters.romaji.reset();
-            self.input_buf.clear();
-            self.input_buf.insert("\u{3000}");
-            let preedit = self.set_composing_state();
-            return EngineResult::consumed()
-                .with_action(EngineAction::UpdatePreedit(preedit))
-                .with_action(EngineAction::UpdateAuxText(self.format_aux_composing()));
+        // Ctrl+Space from Empty is deliberately NOT handled: on macOS it is
+        // the input-source switch and on Linux the fcitx5 toggle — both must
+        // reach the OS. (Mid-composition Ctrl+Space still inserts 　; see
+        // process_key_composing.)
+
+        // Ctrl+K: enter katakana mode from any state (was Composing-only,
+        // so it silently passed through to the app — e.g. kill-line in a
+        // terminal — when no composition was active).
+        if key.modifiers.control_key
+            && (key.keysym == Keysym::KEY_K || key.keysym == Keysym::KEY_K_UPPER)
+        {
+            return self.enter_katakana_mode();
         }
 
         // Bare Space / Shift+Space from Empty state:
@@ -164,7 +167,10 @@ impl InputMethodEngine {
         // The full-width space gesture from Empty in any mode is
         // `Ctrl+Space` (above), which seeds a Composing session.
         if key.keysym == Keysym::SPACE && !key.modifiers.control_key && !key.modifiers.alt_key {
-            return if self.input_mode == InputMode::Hiragana {
+            // Hiragana/Katakana modes commit the configured-width space
+            // (full-width by default, like macOS/Google IME); Alphabet and
+            // Emoji pass through so the app gets a plain ASCII space.
+            return if matches!(self.input_mode, InputMode::Hiragana | InputMode::Katakana) {
                 let space = match (shift_active, self.config.space_style) {
                     (false, crate::config::settings::SpaceStyle::Fullwidth)
                     | (true, crate::config::settings::SpaceStyle::Halfwidth) => "\u{3000}",
