@@ -90,10 +90,66 @@ impl Keysym {
     pub const F11: Keysym = Keysym(0xffc8);
     pub const F12: Keysym = Keysym(0xffc9);
 
+    // Japanese IME keys (XKB, produced by JIS keyboards on Linux):
+    // 変換 / 無変換 / かな / 英数.
+    pub const HENKAN: Keysym = Keysym(0xff23); // Henkan_Mode
+    pub const MUHENKAN: Keysym = Keysym(0xff22); // Muhenkan
+    pub const HIRAGANA_KATAKANA: Keysym = Keysym(0xff27); // Hiragana_Katakana
+    pub const EISU_TOGGLE: Keysym = Keysym(0xff30); // Eisu_toggle
+
+    // Keypad keys (XKB KP_*). Distinct keysyms let the engine treat the
+    // keypad as direct input: keypad digits never select conversion
+    // candidates, and keypad symbols (/, -, .) bypass romaji rules
+    // (issue #51 — macOS standard IME commits them verbatim).
+    pub const KP_ENTER: Keysym = Keysym(0xff8d);
+    pub const KP_MULTIPLY: Keysym = Keysym(0xffaa);
+    pub const KP_ADD: Keysym = Keysym(0xffab);
+    pub const KP_SUBTRACT: Keysym = Keysym(0xffad);
+    pub const KP_DECIMAL: Keysym = Keysym(0xffae);
+    pub const KP_DIVIDE: Keysym = Keysym(0xffaf);
+    pub const KP_0: Keysym = Keysym(0xffb0);
+    pub const KP_1: Keysym = Keysym(0xffb1);
+    pub const KP_2: Keysym = Keysym(0xffb2);
+    pub const KP_3: Keysym = Keysym(0xffb3);
+    pub const KP_4: Keysym = Keysym(0xffb4);
+    pub const KP_5: Keysym = Keysym(0xffb5);
+    pub const KP_6: Keysym = Keysym(0xffb6);
+    pub const KP_7: Keysym = Keysym(0xffb7);
+    pub const KP_8: Keysym = Keysym(0xffb8);
+    pub const KP_9: Keysym = Keysym(0xffb9);
+    pub const KP_EQUAL: Keysym = Keysym(0xffbd);
+
+    /// The literal character a keypad key should insert, or `None` for
+    /// non-character keypad keys (e.g. KP_Enter).
+    pub fn keypad_char(&self) -> Option<char> {
+        let code = match self.0 {
+            0xffb0..=0xffb9 => b'0' + (self.0 - 0xffb0) as u8,
+            0xffae => b'.',
+            0xffab => b'+',
+            0xffad => b'-',
+            0xffaa => b'*',
+            0xffaf => b'/',
+            0xffbd => b'=',
+            _ => return None,
+        };
+        Some(code as char)
+    }
+
+    /// Check if this keysym is a keypad key (KP_*).
+    pub fn is_keypad(&self) -> bool {
+        self.keypad_char().is_some() || self.0 == 0xff8d // KP_Enter
+    }
+
     /// Check if this keysym represents a printable character
     pub fn is_printable(&self) -> bool {
         // ASCII printable range (0x20-0x7e)
-        (0x0020..=0x007e).contains(&self.0)
+        if (0x0020..=0x007e).contains(&self.0) {
+            return true;
+        }
+        // Latin-1 and Unicode keysyms (e.g. JIS ー = U+30FC, ¥ = U+00A5):
+        // XKB special ranges (dead keys 0xfe50-0xfe6f, function/IME keys
+        // 0xff00+) are not characters.
+        (0x00a0..=0xfe4f).contains(&self.0) || (0xfe70..=0xfeff).contains(&self.0)
     }
 
     /// Try to convert this keysym to a character
