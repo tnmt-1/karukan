@@ -116,11 +116,10 @@ impl InputMethodEngine {
 
         let transformed = transform(&text);
 
-        // Record learning
-        let reading = self.input_buf.text.clone();
-        if !reading.is_empty() {
-            self.record_learning(&reading, &transformed);
-        }
+        // Deliberately NO learning record here: F6-F10 are transient
+        // formatting actions (Mozc doesn't record them either). Recording
+        // e.g. きょう → キョウ would make a one-off katakana formatting
+        // choice dominate the candidate order for that reading forever.
 
         // Clear all state
         self.converters.romaji.reset();

@@ -386,12 +386,19 @@ fn f10_converts_selected_candidate_to_half_width() {
 }
 
 #[test]
-fn f6_on_conversion_also_records_learning() {
+fn f6_on_conversion_transforms_without_learning() {
+    // F-keys are formatting actions: they transform and commit but must
+    // NOT record into the learning cache (regression: one-off F7
+    // formatting polluted the candidate order for the reading).
     let mut engine = conversion_engine("あいう", vec!["あいう"]);
-    // We need a learning cache to verify. But at minimum: state transitions correctly.
+    let cache = karukan_engine::LearningCache::new(100);
+    engine.learning = Some(cache);
+
     let result = engine.process_key(&press_key(Keysym::F6));
     assert!(result.consumed);
     assert!(matches!(engine.state(), InputState::Empty));
+    let cache = engine.learning.as_ref().unwrap();
+    assert_eq!(cache.entry_count(), 0, "F6-F10 must not record learning");
 }
 
 // ---------------------------------------------------------------------------
