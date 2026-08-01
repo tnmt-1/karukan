@@ -233,14 +233,84 @@ fn digit_select_in_narrowed_range_partial_commit() {
 }
 
 #[test]
-fn plain_arrow_in_conversion_does_not_resize_range() {
+fn plain_arrow_in_conversion_moves_range() {
+    // Plain ←/→ (no Shift) slide the active conversion range instead of
+    // leaking through to the application. Regression: the keys were not
+    // consumed, so the document caret moved behind the open candidate
+    // window.
     let mut engine = InputMethodEngine::new();
     type_romaji(&mut engine, "aiueo");
     enter_conversion(&mut engine);
 
     let result = engine.process_key(&press_key(Keysym::LEFT));
-    // LEFT without Shift is not consumed in conversion state
-    assert!(!result.consumed);
+    assert!(result.consumed);
     let (start, end, _) = conversion_range(&engine);
-    assert_eq!((start, end), (0, 5));
+    assert_eq!((start, end), (0, 5), "at the left edge the range stays");
+
+    engine.process_key(&press_shift_key(Keysym::LEFT)); // active=あいうえ
+    let result = engine.process_key(&press_key(Keysym::RIGHT));
+    assert!(result.consumed);
+    let (start, end, _) = conversion_range(&engine);
+    assert_eq!((start, end), (1, 5), "right arrow slides the range");
+}
+
+#[test]
+fn plain_arrows_slide_range_within_reading() {
+    let mut engine = InputMethodEngine::new();
+    type_romaji(&mut engine, "aiueo");
+    enter_conversion(&mut engine);
+    engine.process_key(&press_shift_key(Keysym::LEFT)); // 0..4
+    engine.process_key(&press_shift_key(Keysym::LEFT)); // 0..3
+
+    engine.process_key(&press_key(Keysym::RIGHT)); // 1..4
+    let (start, end, _) = conversion_range(&engine);
+    assert_eq!((start, end), (1, 4));
+
+    engine.process_key(&press_key(Keysym::RIGHT)); // 2..5
+    let (start, end, _) = conversion_range(&engine);
+    assert_eq!((start, end), (2, 5));
+
+    // Right edge reached: further right is a consumed no-op.
+    let result = engine.process_key(&press_key(Keysym::RIGHT));
+    assert!(result.consumed);
+    let (start, end, _) = conversion_range(&engine);
+    assert_eq!((start, end), (2, 5));
+}
+
+#[test]
+fn home_end_jump_conversion_range_to_edges() {
+    let mut engine = InputMethodEngine::new();
+    type_romaji(&mut engine, "aiueo");
+    enter_conversion(&mut engine);
+    engine.process_key(&press_shift_key(Keysym::LEFT)); // 0..4
+    engine.process_key(&press_shift_key(Keysym::LEFT)); // 0..3
+
+    // End: range snaps to the tail of the reading.
+    let result = engine.process_key(&press_key(Keysym::END));
+    assert!(result.consumed);
+    let (start, end, _) = conversion_range(&engine);
+    assert_eq!((start, end), (2, 5));
+
+    // Home: range snaps back to the head.
+    let result = engine.process_key(&press_key(Keysym::HOME));
+    assert!(result.consumed);
+    let (start, end, _) = conversion_range(&engine);
+    assert_eq!((start, end), (0, 3));
+}
+
+#[test]
+fn moving_range_rebuilds_candidates_and_keeps_commit_partial() {
+    // After sliding the range, Enter must commit only the active segment
+    // and keep the rest in composing (same as Shift-resized ranges).
+    let mut engine = InputMethodEngine::new();
+    type_romaji(&mut engine, "aiueo");
+    enter_conversion(&mut engine);
+    engine.process_key(&press_shift_key(Keysym::LEFT)); // 0..4
+    engine.process_key(&press_key(Keysym::RIGHT)); // 1..5
+
+    let result = engine.process_key(&press_key(Keysym::RETURN));
+    assert!(result.consumed);
+    assert!(matches!(engine.state(), InputState::Composing { .. }));
+    assert_eq!(engine.input_buf.text, "あ");
+    assert_eq!(engine.preedit().unwrap().text(), "あ");
 }

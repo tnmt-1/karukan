@@ -11,6 +11,15 @@ use super::*;
 /// Maximum number of learning candidates to show
 const MAX_LEARNING_CANDIDATES: usize = 3;
 
+/// Direction of a plain-arrow conversion-range move (←/→/Home/End).
+#[derive(Clone, Copy)]
+enum RangeMove {
+    Left,
+    Right,
+    Home,
+    End,
+}
+
 /// Mozc-style width/script annotation for a pure-kana candidate, or `None`
 /// if the text mixes scripts or contains kanji/punctuation. Used to label
 /// `あ` / `ア` / `ｱ` candidates in the conversion list.
@@ -710,6 +719,47 @@ impl InputMethodEngine {
         self.apply_conversion_range(full_reading, range_start, range_end + 1)
     }
 
+    /// Move the active conversion range (plain ←/→/Home/End), the analog of
+    /// moving the segment cursor in standard IMEs. The range keeps its
+    /// length and slides over the reading; Home/End jump to the edges.
+    /// The keys used to pass through to the application, which moved the
+    /// document caret behind the open candidate window.
+    fn move_conversion_range(&mut self, dir: RangeMove) -> EngineResult {
+        let (full_reading, range_start, range_end) = match &self.state {
+            InputState::Conversion {
+                full_reading,
+                range_start,
+                range_end,
+                ..
+            } => (full_reading.clone(), *range_start, *range_end),
+            _ => return EngineResult::not_consumed(),
+        };
+
+        let full_len = full_reading.chars().count();
+        let len = range_end - range_start;
+        let (new_start, new_end) = match dir {
+            RangeMove::Left => {
+                if range_start == 0 {
+                    return EngineResult::consumed();
+                }
+                (range_start - 1, range_end - 1)
+            }
+            RangeMove::Right => {
+                if range_end >= full_len {
+                    return EngineResult::consumed();
+                }
+                (range_start + 1, range_end + 1)
+            }
+            RangeMove::Home => (0, len),
+            RangeMove::End => (full_len.saturating_sub(len), full_len),
+        };
+
+        if new_start == range_start && new_end == range_end {
+            return EngineResult::consumed();
+        }
+        self.apply_conversion_range(full_reading, new_start, new_end)
+    }
+
     /// Process key in conversion state
     pub(super) fn process_key_conversion(&mut self, key: &KeyEvent) -> EngineResult {
         // Shift+←/→: resize conversion range (right edge only, Mozc/MS-IME style)
@@ -724,11 +774,21 @@ impl InputMethodEngine {
         match key.keysym {
             Keysym::RETURN => self.commit_conversion(),
             Keysym::ESCAPE => self.cancel_conversion(),
+            // Shift+Space / Shift+Tab go back to the previous candidate —
+            // the standard IME convention (macOS Japanese IME, MS-IME,
+            // Google IME). Plain Space/Tab/Down move forward.
+            Keysym::SPACE if key.modifiers.shift_key => self.prev_candidate(),
+            Keysym::TAB if key.modifiers.shift_key => self.prev_candidate(),
+            Keysym::ISO_LEFT_TAB => self.prev_candidate(), // Shift+Tab (XKB)
             Keysym::SPACE | Keysym::DOWN | Keysym::TAB => self.next_candidate(),
             Keysym::UP => self.prev_candidate(),
             Keysym::PAGE_DOWN => self.next_candidate_page(),
             Keysym::PAGE_UP => self.prev_candidate_page(),
             Keysym::BACKSPACE => self.backspace_conversion(),
+            Keysym::LEFT => self.move_conversion_range(RangeMove::Left),
+            Keysym::RIGHT => self.move_conversion_range(RangeMove::Right),
+            Keysym::HOME => self.move_conversion_range(RangeMove::Home),
+            Keysym::END => self.move_conversion_range(RangeMove::End),
             _ => {
                 // Ctrl+N / Ctrl+P: emacs-style candidate navigation
                 if key.modifiers.control_key && !key.modifiers.alt_key {
@@ -1018,7 +1078,14 @@ impl InputMethodEngine {
                 None => return EngineResult::not_consumed(),
             };
 
-            if candidates.select_on_page(digit).is_none() {
+            // `0` selects the 10th candidate on the page (standard IME
+            // convention); no-op when the page has fewer than 10 entries.
+            let selected = if digit == 0 {
+                candidates.select(candidates.page_start() + 9)
+            } else {
+                candidates.select_on_page(digit)
+            };
+            if selected.is_none() {
                 return EngineResult::consumed();
             }
 

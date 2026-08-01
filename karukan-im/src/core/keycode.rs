@@ -10,6 +10,9 @@ impl Keysym {
     // Common key symbols (XKB keysym values)
     pub const BACKSPACE: Keysym = Keysym(0xff08);
     pub const TAB: Keysym = Keysym(0xff09);
+    /// Shift+Tab on X11/Wayland (XKB ISO_Left_Tab) — most layouts resolve
+    /// Shift+Tab to this keysym instead of TAB+shift.
+    pub const ISO_LEFT_TAB: Keysym = Keysym(0xfe20);
     pub const RETURN: Keysym = Keysym(0xff0d);
     pub const ESCAPE: Keysym = Keysym(0xff1b);
     pub const DELETE: Keysym = Keysym(0xffff);
@@ -100,10 +103,11 @@ impl Keysym {
         }
     }
 
-    /// Check if this keysym is a digit (1-9)
+    /// Check if this keysym is a digit (0-9). `0` is included so the
+    /// engine can bind it to the 10th candidate like standard IMEs.
     pub fn digit_value(&self) -> Option<usize> {
         match self.0 {
-            0x0031..=0x0039 => Some((self.0 - 0x0030) as usize),
+            0x0030..=0x0039 => Some((self.0 - 0x0030) as usize),
             _ => None,
         }
     }
@@ -281,7 +285,7 @@ mod tests {
     fn test_digit_value() {
         assert_eq!(Keysym::KEY_1.digit_value(), Some(1));
         assert_eq!(Keysym::KEY_9.digit_value(), Some(9));
-        assert_eq!(Keysym::KEY_0.digit_value(), None);
+        assert_eq!(Keysym::KEY_0.digit_value(), Some(0));
         assert_eq!(Keysym(0x0061).digit_value(), None);
     }
 
