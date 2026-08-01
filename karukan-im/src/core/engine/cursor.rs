@@ -11,6 +11,7 @@ impl InputMethodEngine {
         }
         self.live.text.clear();
         self.input_buf.cursor_pos = new_pos;
+        self.candidates_visible = false;
         self.log_chunk_state("cursor");
         let preedit = self.set_composing_state();
         EngineResult::consumed()

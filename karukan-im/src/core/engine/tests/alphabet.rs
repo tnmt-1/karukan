@@ -255,6 +255,8 @@ fn test_shift_alphabet_reverts_to_hiragana_after_cancel() {
     engine.process_key(&press_shift('A'));
     engine.process_key(&press('b'));
 
+    // First Escape closes the auto-suggest window, second discards input.
+    engine.process_key(&press_key(Keysym::ESCAPE));
     engine.process_key(&press_key(Keysym::ESCAPE));
     assert!(matches!(engine.state(), InputState::Empty));
     // Cancelling the temporary alphabet word restores Hiragana

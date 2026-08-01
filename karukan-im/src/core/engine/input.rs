@@ -56,11 +56,13 @@ impl InputMethodEngine {
             append_candidates_dedup(&mut all_candidates, self.lookup_dict_candidates(&reading));
             append_candidates_dedup(&mut all_candidates, self.lookup_rewriter_variants(&reading));
             if all_candidates.is_empty() {
+                self.candidates_visible = false;
                 return EngineResult::consumed()
                     .with_action(EngineAction::UpdatePreedit(preedit))
                     .with_action(EngineAction::HideCandidates)
                     .with_action(EngineAction::UpdateAuxText(self.format_aux_composing()));
             }
+            self.candidates_visible = true;
             return EngineResult::consumed()
                 .with_action(EngineAction::UpdatePreedit(preedit))
                 .with_action(EngineAction::ShowCandidates(CandidateList::new(
@@ -95,6 +97,7 @@ impl InputMethodEngine {
             append_candidates_dedup(&mut all_candidates, model_candidates);
             append_candidates_dedup(&mut all_candidates, self.lookup_dict_candidates(&reading));
             let aux = self.format_aux_suggest(&self.input_buf.text.clone());
+            self.candidates_visible = true;
             return EngineResult::consumed()
                 .with_action(EngineAction::UpdatePreedit(preedit))
                 .with_action(EngineAction::ShowCandidates(CandidateList::new(
@@ -117,6 +120,7 @@ impl InputMethodEngine {
         // Then dictionary candidates
         append_candidates_dedup(&mut all_candidates, self.lookup_dict_candidates(&reading));
         let aux = self.format_aux_suggest(&self.input_buf.text.clone());
+        self.candidates_visible = true;
         EngineResult::consumed()
             .with_action(EngineAction::UpdatePreedit(preedit))
             .with_action(EngineAction::ShowCandidates(CandidateList::new(
@@ -492,6 +496,7 @@ impl InputMethodEngine {
         self.input_buf.clear();
         self.live.text.clear();
         self.chunks.clear();
+        self.candidates_visible = false;
         self.state = InputState::Empty;
         self.exit_emoji_mode();
         // Shift-alphabet is temporary: committing the word returns to the
@@ -515,6 +520,7 @@ impl InputMethodEngine {
         // If live conversion is active, first Escape returns to hiragana display
         if !self.live.text.is_empty() {
             self.live.text.clear();
+            self.candidates_visible = false;
             let preedit = self.set_composing_state();
             return EngineResult::consumed()
                 .with_action(EngineAction::UpdatePreedit(preedit))
@@ -522,23 +528,27 @@ impl InputMethodEngine {
                 .with_action(EngineAction::UpdateAuxText(self.format_aux_composing()));
         }
 
-        // Emoji mode: Escape closes the picker but commits the literal
-        // buffer (the typed `:smile` or `:xyz`) — Slack-style escape.
-        // The user is saying "abandon the emoji lookup but keep what I
-        // typed as plain text". Without this, Escape would silently
-        // discard the typed characters which is surprising when the
-        // user just wanted to dismiss the candidate list.
-        let emoji_literal =
-            if self.input_mode == InputMode::Emoji && !self.input_buf.text.is_empty() {
-                Some(self.input_buf.text.clone())
-            } else {
-                None
-            };
+        // If the auto-suggest candidate window is open, the first Escape
+        // only closes it (Mozc-style two-stage cancel); a second Escape
+        // discards the input. Prevents wiping a long composition just to
+        // dismiss the candidate list.
+        if self.candidates_visible {
+            self.candidates_visible = false;
+            return EngineResult::consumed()
+                .with_action(EngineAction::HideCandidates)
+                .with_action(EngineAction::HideAuxText);
+        }
+
+        // Emoji mode: Escape is a plain cancel like every other mode — the
+        // composition is discarded and the pre-emoji mode restored. (It used
+        // to commit the literal `:smile` Slack-style, but that contradicts
+        // the standard IME contract that Escape abandons uncommitted input.)
 
         self.converters.romaji.reset();
         self.input_buf.clear();
         self.live.text.clear();
         self.chunks.clear();
+        self.candidates_visible = false;
         self.state = InputState::Empty;
         // Emoji mode is per-session: leaving it returns the user to
         // whatever mode they were in before typing `:` so their next
@@ -548,16 +558,9 @@ impl InputMethodEngine {
         // prior mode so the next word is back in kana (#37).
         self.exit_alphabet_mode();
 
-        if let Some(literal) = emoji_literal {
-            EngineResult::consumed()
-                .with_action(EngineAction::Commit(literal))
-                .with_action(EngineAction::HideCandidates)
-                .with_action(EngineAction::HideAuxText)
-        } else {
-            EngineResult::consumed()
-                .with_action(EngineAction::UpdatePreedit(Preedit::new()))
-                .with_action(EngineAction::HideCandidates)
-                .with_action(EngineAction::HideAuxText)
-        }
+        EngineResult::consumed()
+            .with_action(EngineAction::UpdatePreedit(Preedit::new()))
+            .with_action(EngineAction::HideCandidates)
+            .with_action(EngineAction::HideAuxText)
     }
 }

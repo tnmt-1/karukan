@@ -149,6 +149,10 @@ pub struct InputMethodEngine {
     pre_alphabet_mode: Option<InputMode>,
     /// Composed input buffer (hiragana text, cursor position)
     input_buf: InputBuffer,
+    /// Whether the auto-suggest candidate window is currently shown during
+    /// Composing. Used for the Mozc-style two-stage Escape: first Escape
+    /// closes the candidate window, second Escape discards the input.
+    candidates_visible: bool,
     /// Live conversion state
     live: LiveConversion,
     /// Internal chunking of the composing buffer used by
@@ -181,6 +185,7 @@ impl InputMethodEngine {
             pre_emoji_mode: None,
             pre_alphabet_mode: None,
             input_buf: InputBuffer::new(),
+            candidates_visible: false,
             live: LiveConversion::default(),
             chunks: Vec::new(),
             dicts: Dictionaries::default(),
@@ -255,6 +260,7 @@ impl InputMethodEngine {
         self.pre_emoji_mode = None;
         self.pre_alphabet_mode = None;
         self.input_buf.clear();
+        self.candidates_visible = false;
         self.live.text.clear();
         self.chunks.clear();
         self.metrics = ConversionMetrics::default();
@@ -299,6 +305,7 @@ impl InputMethodEngine {
             // against a buffer it no longer matches).
             self.live.text.clear();
             self.chunks.clear();
+            self.candidates_visible = false;
             // Emoji mode is per-session and bound to the typed `:` —
             // if the user erased back to an empty buffer, the session
             // is over. Restore whatever mode the user was in before

@@ -127,6 +127,7 @@ impl InputMethodEngine {
         self.input_buf.clear();
         self.live.text.clear();
         self.chunks.clear();
+        self.candidates_visible = false;
         self.state = InputState::Empty;
 
         Some(

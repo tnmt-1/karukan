@@ -278,6 +278,7 @@ impl InputMethodEngine {
             range_start: 0,
             range_end: full_len,
         };
+        self.candidates_visible = true;
 
         EngineResult::consumed()
             .with_action(EngineAction::UpdatePreedit(preedit))
@@ -1014,6 +1015,7 @@ impl InputMethodEngine {
         // Set up composed_hiragana with the reading
         self.input_buf.text = reading.clone();
         self.input_buf.cursor_pos = self.input_buf.text.chars().count();
+        self.candidates_visible = false;
 
         // Reset romaji converter and set output to reading
         self.converters.romaji.reset();

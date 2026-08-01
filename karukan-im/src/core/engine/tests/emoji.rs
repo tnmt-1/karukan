@@ -77,15 +77,10 @@ fn emoji_mode_shows_candidates_via_rewriter() {
 }
 
 #[test]
-fn escape_commits_literal_and_exits_emoji_mode() {
-    // Slack-style escape: pressing ESC in emoji mode dismisses the
-    // picker AND commits whatever the user typed as plain text. Two
-    // reasons:
-    //   * The typed `:smile` shouldn't silently vanish — that would
-    //     be surprising; users expect what they typed to land somewhere.
-    //   * It gives a deliberate way to commit `:smile` literally even
-    //     when an emoji match exists, which Enter alone can't do
-    //     (Enter on a match commits the emoji).
+fn escape_cancels_and_exits_emoji_mode() {
+    // Escape in emoji mode: first closes the candidate picker, second
+    // discards the composition (standard IME contract) and restores the
+    // pre-emoji mode.
     let mut engine = InputMethodEngine::new();
     engine.process_key(&press_colon());
     for ch in ['s', 'm', 'i', 'l', 'e'] {
@@ -94,9 +89,14 @@ fn escape_commits_literal_and_exits_emoji_mode() {
     assert_eq!(engine.input_mode, InputMode::Emoji);
 
     let result = engine.process_key(&press_key(Keysym::ESCAPE));
-    assert_eq!(commit_text(&result).as_deref(), Some(":smile"));
+    assert_eq!(commit_text(&result), None, "Escape must not commit");
+    assert!(matches!(engine.state(), InputState::Composing { .. }));
+
+    let result = engine.process_key(&press_key(Keysym::ESCAPE));
+    assert_eq!(commit_text(&result), None, "Escape must not commit");
     assert_eq!(engine.input_mode, InputMode::Hiragana);
     assert!(matches!(engine.state(), InputState::Empty));
+    assert!(engine.preedit().is_none());
 }
 
 #[test]
@@ -332,6 +332,8 @@ fn escape_emoji_restores_pre_emoji_katakana_mode() {
     for ch in ['s', 'm', 'i', 'l', 'e'] {
         engine.process_key(&press(ch));
     }
+    // Two-stage Escape: close the picker, then cancel (restores Katakana).
+    engine.process_key(&press_key(Keysym::ESCAPE));
     engine.process_key(&press_key(Keysym::ESCAPE));
     assert_eq!(engine.input_mode, InputMode::Katakana);
 }

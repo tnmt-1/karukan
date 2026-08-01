@@ -203,7 +203,45 @@ fn test_engine_cancel() {
     engine.process_key(&press('a'));
     engine.process_key(&press('i'));
 
+    // First Escape closes the auto-suggest window (the rewriter shows
+    // ｱｲ etc. for あい), second Escape cancels the input.
     engine.process_key(&press_key(Keysym::ESCAPE));
+    engine.process_key(&press_key(Keysym::ESCAPE));
+    assert!(matches!(engine.state(), InputState::Empty));
+}
+
+#[test]
+fn escape_closes_candidate_window_before_cancelling() {
+    // Mozc-style two-stage Escape: with the auto-suggest window open, the
+    // first Escape only closes it (the input survives); the second Escape
+    // discards the input. Regression: one Escape wiped the whole
+    // composition when the user just wanted to dismiss the candidates.
+    let mut engine = InputMethodEngine::new();
+    engine.process_key(&press('a'));
+    engine.process_key(&press('i'));
+    assert_eq!(engine.preedit().unwrap().text(), "あい");
+    // Simulate an open auto-suggest window (no model loaded in tests).
+    engine.candidates_visible = true;
+
+    let result = engine.process_key(&press_key(Keysym::ESCAPE));
+    assert!(result.consumed);
+    assert!(matches!(engine.state(), InputState::Composing { .. }));
+    assert_eq!(
+        engine.preedit().unwrap().text(),
+        "あい",
+        "first Escape keeps the input"
+    );
+    assert!(!engine.candidates_visible);
+    assert!(
+        result
+            .actions
+            .iter()
+            .any(|a| matches!(a, EngineAction::HideCandidates))
+    );
+
+    // Second Escape discards the input.
+    let result = engine.process_key(&press_key(Keysym::ESCAPE));
+    assert!(result.consumed);
     assert!(matches!(engine.state(), InputState::Empty));
 }
 

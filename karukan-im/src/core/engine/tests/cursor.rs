@@ -308,7 +308,8 @@ fn test_cursor_waseda_scenario() {
     assert_eq!(engine.preedit().unwrap().text(), "わせだだいがく");
 
     // Now let's test the fix scenario: type "waseyadaigaku" (wrong)
-    engine.process_key(&press_key(Keysym::ESCAPE)); // Cancel
+    engine.process_key(&press_key(Keysym::ESCAPE)); // Close candidate window
+    engine.process_key(&press_key(Keysym::ESCAPE)); // Cancel input
     for ch in "waseyadaigaku".chars() {
         engine.process_key(&press(ch));
     }

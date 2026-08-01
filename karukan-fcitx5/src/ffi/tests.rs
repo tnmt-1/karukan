@@ -204,7 +204,9 @@ fn test_escape_cancel() {
     e.press(XKB_KEY_A);
     e.press(XKB_KEY_I);
 
-    // Escape to cancel
+    // Escape closes the auto-suggest window first, a second Escape cancels
+    // (Mozc-style two-stage cancel).
+    e.press(XKB_KEY_ESCAPE);
     e.press(XKB_KEY_ESCAPE);
     assert_eq!(e.preedit_len(), 0);
     assert!(!e.has_commit());
