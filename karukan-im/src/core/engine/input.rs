@@ -367,7 +367,7 @@ impl InputMethodEngine {
     /// First emoji candidate the rewriter would surface for `reading`,
     /// or `None` if none match. Used by Enter in emoji mode so committing
     /// `:smile` produces 😄 directly rather than the literal `:smile`.
-    fn first_emoji_candidate(&self, reading: &str) -> Option<String> {
+    pub(super) fn first_emoji_candidate(&self, reading: &str) -> Option<String> {
         self.converters
             .rewriters
             .rewrite_all(&[reading.to_string()])
@@ -418,25 +418,10 @@ impl InputMethodEngine {
     /// In live conversion mode, commits the converted text instead of hiragana.
     pub(super) fn commit_composing(&mut self) -> EngineResult {
         // Flush any pending romaji into composed_hiragana
-        self.flush_romaji_to_composed();
+        let flushed = self.flush_romaji_to_composed();
 
         let reading = self.input_buf.text.clone();
-        let text = if self.input_mode == InputMode::Emoji {
-            // Emoji mode: Enter should select the first emoji candidate the
-            // EmojiRewriter would surface, not commit the literal `:smile`.
-            // Falls back to the literal buffer when nothing matches (e.g.
-            // `:xyz`) so the user still sees what they typed.
-            self.first_emoji_candidate(&reading)
-                .unwrap_or_else(|| reading.clone())
-        } else if self.input_mode == InputMode::Katakana {
-            // Katakana mode always commits katakana, ignoring live conversion
-            karukan_engine::hiragana_to_katakana(&reading)
-        } else if !self.live.text.is_empty() {
-            // Live conversion active: commit converted text
-            self.live.text.clone()
-        } else {
-            reading.clone()
-        };
+        let text = self.composing_commit_text(&reading, &flushed);
 
         if text.is_empty() {
             self.state = InputState::Empty;

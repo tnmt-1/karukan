@@ -352,3 +352,27 @@ fn colon_in_hiragana_does_not_enter_emoji_when_already_composing() {
     // not have triggered emoji mode.
     assert!(engine.preedit().unwrap().text().contains('あ'));
 }
+
+#[test]
+fn focus_loss_commit_skips_learning_for_emoji_query() {
+    // Focus-loss commit in emoji mode must not record `:smile` into the
+    // kana-keyed learning cache (regression: commit() recorded
+    // unconditionally while the Enter path skipped emoji).
+    let mut engine = InputMethodEngine::new();
+    let cache = karukan_engine::LearningCache::new(100);
+    engine.learning = Some(cache);
+
+    engine.process_key(&press_colon());
+    for ch in ['s', 'm', 'i', 'l', 'e'] {
+        engine.process_key(&press(ch));
+    }
+    assert_eq!(engine.input_mode, InputMode::Emoji);
+
+    assert_eq!(engine.commit(), "😄");
+    let cache = engine.learning.as_ref().unwrap();
+    assert!(
+        cache.lookup(":smile").is_empty(),
+        "emoji query must not be learned"
+    );
+    assert_eq!(cache.entry_count(), 0);
+}

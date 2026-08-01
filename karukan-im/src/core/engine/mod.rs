@@ -340,10 +340,13 @@ impl InputMethodEngine {
         }
     }
 
-    /// Flush the romaji buffer and insert result at cursor position
-    fn flush_romaji_to_composed(&mut self) {
+    /// Flush the romaji buffer and insert result at cursor position.
+    /// Returns the newly flushed text (empty when there was nothing to
+    /// flush) so callers can keep their commit/display output consistent
+    /// with what the preedit showed (e.g. `live.text` + pending romaji).
+    fn flush_romaji_to_composed(&mut self) -> String {
         if self.converters.romaji.buffer().is_empty() {
-            return;
+            return String::new();
         }
         let prev_output_len = self.converters.romaji.output().chars().count();
         let _flushed = self.converters.romaji.flush();
@@ -358,6 +361,7 @@ impl InputMethodEngine {
         if !new_from_flush.is_empty() {
             self.input_buf.insert(&new_from_flush);
         }
+        new_from_flush
     }
 
     /// Set surrounding context from the full text plus a cursor offset in
@@ -532,19 +536,26 @@ impl InputMethodEngine {
             InputState::Empty => String::new(),
             InputState::Composing { .. } => {
                 // Flush romaji buffer into composed_hiragana
-                self.flush_romaji_to_composed();
+                let flushed = self.flush_romaji_to_composed();
                 let reading = self.input_buf.text.clone();
-                let text = if !self.live.text.is_empty() {
-                    self.live.text.clone()
-                } else {
-                    reading.clone()
-                };
-                // Record live conversion result in learning cache
-                self.record_learning(&reading, &text);
+                let text = self.composing_commit_text(&reading, &flushed);
+                // Record live conversion result in learning cache. Emoji
+                // shortcode queries (e.g. `:smile`) are not kana readings
+                // and would corrupt the kana-keyed cache — skip them,
+                // mirroring commit_composing.
+                if self.input_mode != InputMode::Emoji {
+                    self.record_learning(&reading, &text);
+                }
                 self.converters.romaji.reset();
                 self.input_buf.clear();
                 self.live.text.clear();
+                self.chunks.clear();
                 self.state = InputState::Empty;
+                // Shift-alphabet and Emoji are per-composition modes:
+                // leaving the composition (even via focus loss) restores the
+                // prior mode so the next word doesn't stay in ASCII/emoji.
+                self.exit_emoji_mode();
+                self.exit_alphabet_mode();
                 self.surrounding_context = None;
                 text
             }
@@ -576,10 +587,30 @@ impl InputMethodEngine {
                     format!("{}{}{}", before, text, after)
                 };
                 self.input_buf.clear();
+                self.chunks.clear();
                 self.state = InputState::Empty;
                 self.surrounding_context = None;
                 commit_text
             }
+        }
+    }
+
+    /// Compute the text to commit for a Composing state — mirroring what the
+    /// preedit displayed so commit never diverges from the UI:
+    /// - Emoji mode: first emoji candidate (or the literal buffer)
+    /// - Katakana mode: katakana conversion of the reading
+    /// - Live conversion: `live.text` + the romaji flushed on this commit
+    /// - Otherwise: the raw reading
+    fn composing_commit_text(&self, reading: &str, flushed: &str) -> String {
+        if self.input_mode == InputMode::Emoji {
+            self.first_emoji_candidate(reading)
+                .unwrap_or_else(|| reading.to_string())
+        } else if self.input_mode == InputMode::Katakana {
+            karukan_engine::hiragana_to_katakana(reading)
+        } else if !self.live.text.is_empty() {
+            format!("{}{}", self.live.text, flushed)
+        } else {
+            reading.to_string()
         }
     }
 
