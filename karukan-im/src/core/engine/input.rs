@@ -69,8 +69,16 @@ impl InputMethodEngine {
                 .with_action(EngineAction::UpdateAuxText(self.format_aux_composing()));
         };
 
-        // Live conversion mode: show converted text in preedit
-        if self.live.enabled && self.input_mode != InputMode::Katakana {
+        // Live conversion mode: show converted text in preedit.
+        // Only when the caret is at the end of the reading: the converted
+        // display is rendered as `live.text` + pending romaji with the caret
+        // at the end, so with a mid-buffer caret the display would diverge
+        // from the actual edit position (and commits would drop input).
+        // Mid-buffer editing falls through to the plain hiragana display.
+        if self.live.enabled
+            && self.input_mode != InputMode::Katakana
+            && self.input_buf.cursor_pos == self.input_buf.text.chars().count()
+        {
             self.live.text = candidates[0].clone();
             let preedit = self.set_composing_state();
 
