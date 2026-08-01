@@ -38,9 +38,19 @@ public:
     KarukanCandidateList(KarukanEngine* engine, InputContext* ic);
     void updateCandidates(::KarukanEngine* rustEngine);
 
+    // fcitx5 page-button support: prev/next arrows appear in the candidate
+    // window when these report navigation is possible, and the buttons call
+    // nextPage()/prevPage() (M10: mouse paging instead of PgUp/PgDn only).
+    bool hasPrev() const override { return page_ > 0; }
+    bool hasNext() const override { return page_ + 1 < totalPages_; }
+    void nextPage() override;
+    void prevPage() override;
+
 private:
     KarukanEngine* engine_;
     InputContext* ic_;
+    uint32_t page_{0};
+    uint32_t totalPages_{1};
 };
 
 // Per-input-context state
@@ -76,6 +86,8 @@ public:
     Instance* instance() { return instance_; }
 
     void selectCandidate(InputContext* ic, int index);
+    void nextCandidatePage(InputContext* ic);
+    void prevCandidatePage(InputContext* ic);
 
     auto& factory() { return factory_; }
 

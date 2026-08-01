@@ -111,6 +111,10 @@ struct CandidateCache {
     descriptions: Vec<CString>,
     count: usize,
     cursor: usize,
+    /// Current page (0-indexed) and total page count — drives fcitx5's
+    /// candidate-window prev/next page buttons.
+    page: usize,
+    total_pages: usize,
     dirty: bool,
     hide: bool,
 }
@@ -219,6 +223,8 @@ impl KarukanEngine {
                         .collect();
                     self.candidates.count = self.candidates.texts.len();
                     self.candidates.cursor = candidates.page_cursor();
+                    self.candidates.page = candidates.current_page();
+                    self.candidates.total_pages = candidates.total_pages();
                     self.candidates.dirty = true;
                     self.candidates.hide = false;
                 }

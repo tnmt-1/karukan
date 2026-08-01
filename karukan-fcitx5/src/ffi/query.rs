@@ -177,6 +177,21 @@ pub extern "C" fn karukan_engine_get_candidate_cursor(engine: *const KarukanEngi
     engine.candidates.cursor as c_uint
 }
 
+/// Get the current candidate page number (0-indexed). Drives fcitx5's
+/// candidate-window prev/next page buttons.
+#[unsafe(no_mangle)]
+pub extern "C" fn karukan_engine_get_candidate_page(engine: *const KarukanEngine) -> c_uint {
+    let engine = ffi_ref!(engine, 0);
+    engine.candidates.page as c_uint
+}
+
+/// Get the total number of candidate pages.
+#[unsafe(no_mangle)]
+pub extern "C" fn karukan_engine_get_candidate_total_pages(engine: *const KarukanEngine) -> c_uint {
+    let engine = ffi_ref!(engine, 0);
+    engine.candidates.total_pages as c_uint
+}
+
 /// Check if there's an aux text update pending
 #[unsafe(no_mangle)]
 pub extern "C" fn karukan_engine_has_aux(engine: *const KarukanEngine) -> c_int {

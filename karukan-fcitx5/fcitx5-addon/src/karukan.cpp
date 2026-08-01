@@ -65,6 +65,8 @@ void KarukanCandidateList::updateCandidates(::KarukanEngine* rustEngine) {
 
     uint32_t count = karukan_engine_get_candidate_count(rustEngine);
     uint32_t cursor = karukan_engine_get_candidate_cursor(rustEngine);
+    page_ = karukan_engine_get_candidate_page(rustEngine);
+    totalPages_ = karukan_engine_get_candidate_total_pages(rustEngine);
 
     for (uint32_t i = 0; i < count; i++) {
         const char* text = karukan_engine_get_candidate(rustEngine, i);
@@ -82,11 +84,38 @@ void KarukanCandidateList::updateCandidates(::KarukanEngine* rustEngine) {
     }
 }
 
+void KarukanCandidateList::nextPage() {
+    engine_->nextCandidatePage(ic_);
+}
+
+void KarukanCandidateList::prevPage() {
+    engine_->prevCandidatePage(ic_);
+}
+
 // --- KarukanState ---
 
 KarukanState::KarukanState(KarukanEngine* engine, InputContext* ic) : engine_(engine), ic_(ic) {
     // Create Rust engine instance
     rustEngine_ = karukan_engine_new();
+
+    // Keep the engine's conversion context fresh: clients push surrounding
+    // text updates asynchronously (especially right after a commit), and
+    // without subscribing here the cache read at the next key event could
+    // be one keystroke stale (M12).
+    ic->connect<&InputContext::SurroundingTextUpdated>(this, [this](InputContext* ic) {
+        if (!rustEngine_) {
+            return;
+        }
+        if (ic->capabilityFlags().test(CapabilityFlag::SurroundingText) &&
+            ic->surroundingText().isValid()) {
+            const auto& surrounding = ic->surroundingText();
+            const std::string& text = surrounding.text();
+            uint32_t cursor = surrounding.cursor();
+            karukan_engine_set_surrounding_text(rustEngine_, text.c_str(), cursor);
+        } else {
+            karukan_engine_set_surrounding_text(rustEngine_, "", 0);
+        }
+    });
 }
 
 KarukanState::~KarukanState() {
@@ -369,6 +398,26 @@ void KarukanEngine::selectCandidate(InputContext* ic, int index) {
     uint32_t keysym = XKB_KEY_1 + index;
     karukan_engine_process_key(rustEngine, keysym, 0, 0);
 
+    state->updateUI();
+}
+
+void KarukanEngine::nextCandidatePage(InputContext* ic) {
+    auto* state = ic->propertyFor(&factory_);
+    auto* rustEngine = state->rustEngine();
+    if (!rustEngine) {
+        return;
+    }
+    karukan_engine_next_candidate_page(rustEngine);
+    state->updateUI();
+}
+
+void KarukanEngine::prevCandidatePage(InputContext* ic) {
+    auto* state = ic->propertyFor(&factory_);
+    auto* rustEngine = state->rustEngine();
+    if (!rustEngine) {
+        return;
+    }
+    karukan_engine_prev_candidate_page(rustEngine);
     state->updateUI();
 }
 

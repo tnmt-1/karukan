@@ -197,6 +197,31 @@ const char* karukan_engine_get_candidate_description(const KarukanEngine* engine
  */
 uint32_t karukan_engine_get_candidate_cursor(const KarukanEngine* engine);
 
+/*
+ * Get the current candidate page number (0-indexed).
+ * Drives fcitx5's candidate-window prev/next page buttons.
+ */
+uint32_t karukan_engine_get_candidate_page(const KarukanEngine* engine);
+
+/*
+ * Get the total number of candidate pages.
+ */
+uint32_t karukan_engine_get_candidate_total_pages(const KarukanEngine* engine);
+
+/*
+ * Move to the next candidate page (like PgDn).
+ * Returns 1 if the action was consumed (a candidate list is active), 0 otherwise.
+ * After calling this function, check the has_* functions for UI updates.
+ */
+int karukan_engine_next_candidate_page(KarukanEngine* engine);
+
+/*
+ * Move to the previous candidate page (like PgUp).
+ * Returns 1 if the action was consumed (a candidate list is active), 0 otherwise.
+ * After calling this function, check the has_* functions for UI updates.
+ */
+int karukan_engine_prev_candidate_page(KarukanEngine* engine);
+
 /* --- Auxiliary text (reading hint) --- */
 
 /*

@@ -1076,6 +1076,28 @@ impl InputMethodEngine {
         result
     }
 
+    /// Move to the next candidate page, like PgDn. Not consumed unless a
+    /// candidate list is active (Conversion state). Used by frontend
+    /// candidate-window page buttons (fcitx5).
+    pub fn select_next_candidate_page(&mut self) -> EngineResult {
+        let start = std::time::Instant::now();
+        self.metrics.conversion_ms = 0;
+        let result = self.next_candidate_page();
+        self.metrics.process_key_ms = start.elapsed().as_millis() as u64;
+        result
+    }
+
+    /// Move to the previous candidate page, like PgUp. Not consumed unless a
+    /// candidate list is active (Conversion state). Used by frontend
+    /// candidate-window page buttons (fcitx5).
+    pub fn select_prev_candidate_page(&mut self) -> EngineResult {
+        let start = std::time::Instant::now();
+        self.metrics.conversion_ms = 0;
+        let result = self.prev_candidate_page();
+        self.metrics.process_key_ms = start.elapsed().as_millis() as u64;
+        result
+    }
+
     /// Select candidate by digit (1-9).
     ///
     /// In range mode, commits only the active segment and keeps the
