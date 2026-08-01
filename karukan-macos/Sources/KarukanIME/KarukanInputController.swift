@@ -176,6 +176,11 @@ class KarukanInputController: IMKInputController {
                 }
 
             case .showCandidates(let candidates, let cursor, let page, let totalPages):
+                // Route candidate-row clicks to the shared engine client
+                // (global from main.swift).
+                Self.candidateWindow.onSelect = { pageIndex in
+                    engineClient.selectCandidateAsync(pageIndex: pageIndex)
+                }
                 let cursorRect = compositionLineRect(
                     client: client,
                     caretUTF16: preeditCaretUTF16 ?? 0,

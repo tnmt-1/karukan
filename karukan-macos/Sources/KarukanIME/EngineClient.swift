@@ -58,6 +58,13 @@ class EngineClient {
         keyResultSync(method: "commit", params: [:], timeout: 1.0)
     }
 
+    /// Select and commit the candidate at `pageIndex` (0-based within the
+    /// current page) — used by candidate-window mouse clicks. Fire-and-forget:
+    /// the engine commits synchronously and the UI update arrives as actions.
+    func selectCandidateAsync(pageIndex: Int) {
+        sendRequest(method: "select_candidate", params: ["page_index": pageIndex]) { _ in }
+    }
+
     func saveLearningAsync() {
         sendRequest(method: "save_learning", params: [:]) { _ in }
     }

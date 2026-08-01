@@ -13,6 +13,10 @@ class CandidateWindowController {
     private static let footerFontSize: CGFloat = 13
     private static let minPanelWidth: CGFloat = 160
 
+    /// Called with the 0-based page index when the user clicks a candidate
+    /// row. Set by the input controller that owns the current composition.
+    var onSelect: ((Int) -> Void)?
+
     private let panel: NSPanel
     private let stackView: NSStackView
     private var rowViews: [NSView] = []
@@ -37,7 +41,7 @@ class CandidateWindowController {
         panel.hidesOnDeactivate = false
         panel.isOpaque = false
         panel.backgroundColor = NSColor.windowBackgroundColor
-        panel.ignoresMouseEvents = true
+        panel.ignoresMouseEvents = false  // rows are clickable (see addCandidateRow)
 
         stackView = NSStackView()
         stackView.orientation = .vertical
@@ -172,6 +176,7 @@ class CandidateWindowController {
 
         let label = NSTextField(labelWithAttributedString: text)
         label.translatesAutoresizingMaskIntoConstraints = false
+        label.tag = number - 1  // 0-based page index for click handling
         if selected {
             label.backgroundColor = NSColor.selectedContentBackgroundColor
             label.drawsBackground = true
@@ -179,8 +184,18 @@ class CandidateWindowController {
             label.backgroundColor = .clear
             label.drawsBackground = false
         }
+        // Mouse click on a row selects and commits that candidate
+        // (standard IME behavior). The non-activating panel keeps keyboard
+        // focus in the document.
+        let click = NSClickGestureRecognizer(target: self, action: #selector(candidateRowClicked(_:)))
+        label.addGestureRecognizer(click)
         stackView.addArrangedSubview(label)
         rowViews.append(label)
+    }
+
+    @objc private func candidateRowClicked(_ sender: NSClickGestureRecognizer) {
+        guard let view = sender.view, onSelect != nil else { return }
+        onSelect?(view.tag)
     }
 
     private func addFooterLabel(_ text: String) {
