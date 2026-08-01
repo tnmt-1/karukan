@@ -204,6 +204,16 @@ impl InputMethodEngine {
             return self.start_emoji_mode();
         }
 
+        // Keypad keys: insert the literal character (bypassing romaji
+        // rules and candidate-selection logic) — standard IMEs treat the
+        // keypad as direct input (issue #51).
+        if let Some(ch) = key.keysym.keypad_char()
+            && !key.modifiers.control_key
+            && !key.modifiers.alt_key
+        {
+            return self.start_input_direct(ch);
+        }
+
         // Only handle printable characters without modifiers (except shift)
         if let Some(ch) = key.to_char()
             && !key.modifiers.control_key
@@ -275,6 +285,18 @@ impl InputMethodEngine {
             .with_action(EngineAction::UpdateAuxText(self.format_aux_composing()))
     }
 
+    /// Start input with a character that bypasses romaji conversion
+    /// (keypad digits/symbols): the literal character is inserted verbatim.
+    fn start_input_direct(&mut self, ch: char) -> EngineResult {
+        self.converters.romaji.reset();
+        self.input_buf.clear();
+        self.input_buf.insert(&ch.to_string());
+        let preedit = self.set_composing_state();
+        EngineResult::consumed()
+            .with_action(EngineAction::UpdatePreedit(preedit))
+            .with_action(EngineAction::UpdateAuxText(self.format_aux_composing()))
+    }
+
     /// Insert a full-width space (U+3000) at cursor position
     pub(super) fn input_fullwidth_space(&mut self) -> EngineResult {
         self.input_buf.insert("\u{3000}");
@@ -307,7 +329,7 @@ impl InputMethodEngine {
         }
 
         match key.keysym {
-            Keysym::RETURN => self.commit_composing(),
+            Keysym::RETURN | Keysym::KP_ENTER => self.commit_composing(),
             Keysym::ESCAPE => self.cancel_composing(),
             Keysym::BACKSPACE => self.backspace_composing(),
             Keysym::DELETE => self.delete_composing(),
@@ -322,6 +344,17 @@ impl InputMethodEngine {
             Keysym::HOME => self.move_caret_home(),
             Keysym::END => self.move_caret_end(),
             _ => {
+                // Keypad: insert the literal character at the cursor,
+                // bypassing romaji rules (keypad '/' must stay '/', not
+                // become ・; keypad digits never trigger conversion).
+                if let Some(ch) = key.keysym.keypad_char()
+                    && !key.modifiers.control_key
+                    && !key.modifiers.alt_key
+                {
+                    self.input_buf.insert(&ch.to_string());
+                    return self.refresh_input_state();
+                }
+
                 if let Some(ch) = key.to_char()
                     && !key.modifiers.control_key
                     && !key.modifiers.alt_key

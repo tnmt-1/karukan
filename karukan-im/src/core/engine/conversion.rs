@@ -772,7 +772,7 @@ impl InputMethodEngine {
         }
 
         match key.keysym {
-            Keysym::RETURN => self.commit_conversion(),
+            Keysym::RETURN | Keysym::KP_ENTER => self.commit_conversion(),
             Keysym::ESCAPE => self.cancel_conversion(),
             // Shift+Space / Shift+Tab go back to the previous candidate —
             // the standard IME convention (macOS Japanese IME, MS-IME,
@@ -799,7 +799,14 @@ impl InputMethodEngine {
                     }
                 }
 
-                // Check for digit selection (1-9)
+                // Keypad keys are direct input: commit the current
+                // candidate and start a new composition with the literal
+                // keypad char — never candidate selection (issue #51).
+                if let Some(ch) = key.keysym.keypad_char() {
+                    return self.commit_conversion_and_continue(ch);
+                }
+
+                // Check for digit selection (0-9; 0 = 10th candidate)
                 if let Some(digit) = key.keysym.digit_value() {
                     return self.select_candidate_by_digit(digit);
                 }

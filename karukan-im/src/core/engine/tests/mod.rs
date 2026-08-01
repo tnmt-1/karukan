@@ -13,6 +13,7 @@ mod cursor;
 mod emoji;
 mod fkeys;
 mod katakana;
+mod keypad;
 mod learning;
 mod live_conversion;
 mod mode_toggle;
