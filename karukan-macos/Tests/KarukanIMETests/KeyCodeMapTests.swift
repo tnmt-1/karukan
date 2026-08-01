@@ -99,6 +99,47 @@ final class KeyCodeMapTests: XCTestCase {
             KeyCodeMap.translate(
                 keyCode: 0, characters: nil, charactersIgnoringModifiers: nil, flags: []))
     }
+
+    func testJISLongVowelKeyMapsToLiteralChoon() {
+        // JIS ー key (keyCode 94): the literal U+30FC keysym so the engine
+        // takes it into the preedit instead of the key passing through and
+        // replacing the marked text.
+        let event = KeyCodeMap.translate(
+            keyCode: KeyCodeMap.jisLongVowelKeyCode,
+            characters: "ー", charactersIgnoringModifiers: "ー", flags: [])
+        XCTAssertEqual(event?.keysym, 0x30FC)
+    }
+
+    func testJISYenKeyMapsToLiteralYen() {
+        let event = KeyCodeMap.translate(
+            keyCode: KeyCodeMap.jisYenKeyCode,
+            characters: "¥", charactersIgnoringModifiers: "¥", flags: [])
+        XCTAssertEqual(event?.keysym, 0x00A5)
+    }
+
+    func testKeypadDigitsMapToKPKeysyms() {
+        // Keypad 5 (keyCode 87) → KP_5 (0xffb5), not the ASCII '5' — the
+        // engine can then treat it as direct input (issue #51).
+        let event = KeyCodeMap.translate(
+            keyCode: 87, characters: "5", charactersIgnoringModifiers: "5", flags: [])
+        XCTAssertEqual(event?.keysym, 0xffb5)
+    }
+
+    func testKeypadSymbolsMapToKPKeysyms() {
+        // Keypad / (keyCode 75) → KP_DIVIDE (0xffaf): stays "/" in the
+        // engine instead of romaji-converting to ・.
+        let event = KeyCodeMap.translate(
+            keyCode: 75, characters: "/", charactersIgnoringModifiers: "/", flags: [])
+        XCTAssertEqual(event?.keysym, 0xffaf)
+    }
+
+    func testKeypadEnterAlreadyMapped() {
+        // Keypad Enter (keyCode 76) → KP_Enter (0xff8d), which the engine
+        // now treats as a normal Return.
+        let event = KeyCodeMap.translate(
+            keyCode: 76, characters: nil, charactersIgnoringModifiers: nil, flags: [])
+        XCTAssertEqual(event?.keysym, 0xff8d)
+    }
 }
 
 

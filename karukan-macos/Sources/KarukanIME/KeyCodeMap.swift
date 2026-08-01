@@ -48,8 +48,36 @@ enum KeyCodeMap {
     static let kanaKeyCode: UInt16 = 104
     /// JIS keyboard 英数 key (kVK_JIS_Eisu).
     static let eisuKeyCode: UInt16 = 102
+    /// JIS keyboard ー key (kVK_JIS_Underscore = 94). Maps to the literal
+    /// character keysym (U+30FC) so 長音 input reaches the preedit instead of
+    /// passing through to the app and clobbering the marked text.
+    static let jisLongVowelKeyCode: UInt16 = 94
+    /// JIS keyboard ¥ key (kVK_JIS_Yen = 93).
+    static let jisYenKeyCode: UInt16 = 93
     /// XKB Super_R keysym — the engine's katakana→hiragana toggle.
     static let superRKeysym: UInt32 = 0xffec
+
+    /// Numeric keypad key codes (Carbon kVK_*) → XKB KP_* keysyms. The
+    /// engine treats KP keysyms as direct input: digits never select
+    /// conversion candidates and symbols bypass romaji rules (issue #51).
+    private static let keypadKeys: [UInt16: UInt32] = [
+        82: 0xffb0,  // keypad 0
+        83: 0xffb1,  // keypad 1
+        84: 0xffb2,  // keypad 2
+        85: 0xffb3,  // keypad 3
+        86: 0xffb4,  // keypad 4
+        87: 0xffb5,  // keypad 5
+        88: 0xffb6,  // keypad 6
+        89: 0xffb7,  // keypad 7
+        91: 0xffb8,  // keypad 8
+        92: 0xffb9,  // keypad 9
+        65: 0xffae,  // keypad .
+        67: 0xffaa,  // keypad *
+        69: 0xffab,  // keypad +
+        75: 0xffaf,  // keypad /
+        78: 0xffad,  // keypad -
+        81: 0xffbd,  // keypad =
+    ]
 
     static func modifiers(from flags: NSEvent.ModifierFlags) -> KeyModifiers {
         KeyModifiers(
@@ -69,6 +97,23 @@ enum KeyCodeMap {
         let modifiers = modifiers(from: flags)
 
         if let keysym = specialKeys[keyCode] {
+            return EngineKeyEvent(keysym: keysym, modifiers: modifiers)
+        }
+
+        // JIS ー / ¥ keys: their `characters` are non-ASCII, which the
+        // ASCII path below would reject — map them to their literal
+        // keysyms so the engine takes them into the preedit (regression:
+        // they passed through and replaced the marked text).
+        if keyCode == jisLongVowelKeyCode {
+            return EngineKeyEvent(keysym: 0x30FC, modifiers: modifiers) // ー
+        }
+        if keyCode == jisYenKeyCode {
+            return EngineKeyEvent(keysym: 0x00A5, modifiers: modifiers) // ¥
+        }
+
+        // Keypad keys → XKB KP_* keysyms (direct-input semantics in the
+        // engine, issue #51). Keypad Enter is already in specialKeys.
+        if let keysym = keypadKeys[keyCode] {
             return EngineKeyEvent(keysym: keysym, modifiers: modifiers)
         }
 
