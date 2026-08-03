@@ -259,7 +259,7 @@ impl InputMethodEngine {
             let _event = self.converters.romaji.push(ch);
             let romaji_buffer = self.converters.romaji.buffer().to_string();
 
-            // PassThrough chars (no romaji rule, e.g. `'`, `;`, `<`, `(`) used to
+            // PassThrough chars (no romaji rule, e.g. `'`, `;`, `<`) used to
             // auto-commit immediately, but that prevented users from composing
             // sequences like `「」` or getting symbol variants. Treat them like
             // digits — let them enter Composing and accumulate in the preedit.

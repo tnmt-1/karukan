@@ -346,17 +346,58 @@ pub fn build_rules() -> TrieNode {
     // Long vowel mark
     trie.insert("-", "ー");
 
-    // Punctuation and symbols
+    // Punctuation and symbols.
+    //
+    // Kana mode is a full-width context: mozc's default config marks every
+    // ASCII punctuation group as `preedit_character_form = FULL_WIDTH`
+    // (`src/config/config_handler.cc`), so a typed symbol shows up full-width
+    // in the preedit. mozc reaches that through a separate character-form
+    // manager layered on top of its romaji table; karukan has no such layer,
+    // so the mappings live here instead.
+    //
+    // Japanese-specific replacements first — these are what mozc's own romaji
+    // table (`data/preedit/romanji-hiragana.tsv`) overrides the width rule
+    // with, plus `/` → `・`, which karukan keeps for the middle dot.
     trie.insert(",", "、");
     trie.insert(".", "。");
     trie.insert("/", "・");
-    trie.insert("?", "？");
-    trie.insert("!", "！");
     trie.insert("~", "〜");
-
-    // Brackets
     trie.insert("[", "「");
     trie.insert("]", "」");
+
+    // Everything else takes its full-width form straight from mozc's
+    // `data/preedit/halfwidthascii-fullwidthascii.tsv`. Note the entries that
+    // are NOT the naive U+FFxx counterpart: `"` → `”`, `'` → `’`, `\` → `￥`.
+    // The half-width form of each stays one keypress away in the candidate
+    // list via the symbol rewriter's variant chains (`data/symbols.yml`).
+    //
+    // `'` does not shadow the `n'` → `ん` rule: the trie takes the longest
+    // match, so a buffered `n` still consumes the apostrophe.
+    trie.insert("!", "！");
+    trie.insert("\"", "”");
+    trie.insert("#", "＃");
+    trie.insert("$", "＄");
+    trie.insert("%", "％");
+    trie.insert("&", "＆");
+    trie.insert("'", "’");
+    trie.insert("(", "（");
+    trie.insert(")", "）");
+    trie.insert("*", "＊");
+    trie.insert("+", "＋");
+    trie.insert(":", "：");
+    trie.insert(";", "；");
+    trie.insert("<", "＜");
+    trie.insert("=", "＝");
+    trie.insert(">", "＞");
+    trie.insert("?", "？");
+    trie.insert("@", "＠");
+    trie.insert("\\", "￥");
+    trie.insert("^", "＾");
+    trie.insert("_", "＿");
+    trie.insert("`", "｀");
+    trie.insert("{", "｛");
+    trie.insert("|", "｜");
+    trie.insert("}", "｝");
 
     // Z-special symbols (Google Japanese Input style)
     trie.insert("z/", "・");
@@ -569,10 +610,64 @@ mod tests {
         let trie = build_rules();
         assert_eq!(trie.search_longest("[").output.unwrap(), "「");
         assert_eq!(trie.search_longest("]").output.unwrap(), "」");
+        assert_eq!(trie.search_longest("(").output.unwrap(), "（");
+        assert_eq!(trie.search_longest(")").output.unwrap(), "）");
         assert_eq!(trie.search_longest(",").output.unwrap(), "、");
         assert_eq!(trie.search_longest(".").output.unwrap(), "。");
         assert_eq!(trie.search_longest("-").output.unwrap(), "ー");
         assert_eq!(trie.search_longest("~").output.unwrap(), "〜");
+    }
+
+    #[test]
+    fn test_ascii_symbols_are_full_width() {
+        // Every ASCII punctuation key that has no Japanese-specific
+        // replacement maps to the full-width form from mozc's
+        // `halfwidthascii-fullwidthascii.tsv`, matching mozc's default
+        // `preedit_character_form = FULL_WIDTH` for these groups.
+        let trie = build_rules();
+        let table = [
+            ("!", "！"),
+            ("\"", "”"),
+            ("#", "＃"),
+            ("$", "＄"),
+            ("%", "％"),
+            ("&", "＆"),
+            ("'", "’"),
+            ("(", "（"),
+            (")", "）"),
+            ("*", "＊"),
+            ("+", "＋"),
+            (":", "："),
+            (";", "；"),
+            ("<", "＜"),
+            ("=", "＝"),
+            (">", "＞"),
+            ("?", "？"),
+            ("@", "＠"),
+            ("\\", "￥"),
+            ("^", "＾"),
+            ("_", "＿"),
+            ("`", "｀"),
+            ("{", "｛"),
+            ("|", "｜"),
+            ("}", "｝"),
+        ];
+        for (key, expected) in table {
+            assert_eq!(
+                trie.search_longest(key).output,
+                Some(expected),
+                "`{key}` should convert to `{expected}`"
+            );
+        }
+    }
+
+    #[test]
+    fn test_apostrophe_rule_does_not_shadow_n_apostrophe() {
+        // `'` → `’` must not break `n'` → `ん`: the trie takes the longest
+        // match, so a buffered `n` still consumes the apostrophe.
+        let trie = build_rules();
+        assert_eq!(trie.search_longest("n'").output.unwrap(), "ん");
+        assert_eq!(trie.search_longest("'").output.unwrap(), "’");
     }
 
     #[test]
