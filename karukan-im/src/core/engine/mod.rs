@@ -23,7 +23,7 @@ use input_buffer::InputBuffer;
 mod tests;
 
 use karukan_engine::{
-    Dictionary, KanaKanjiConverter, LearningCache, RewriterChain, RomajiConverter,
+    BackspaceResult, Dictionary, KanaKanjiConverter, LearningCache, RewriterChain, RomajiConverter,
 };
 use tracing::{debug, trace};
 

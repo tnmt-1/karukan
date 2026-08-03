@@ -18,8 +18,10 @@ pub enum ConversionEvent {
 pub enum BackspaceResult {
     /// Removed from output
     RemovedOutput(char),
-    /// Removed from buffer
-    RemovedBuffer(char),
+    /// Removed from buffer. `restored` counts the characters moved back out of
+    /// the output and into the buffer, so callers mirroring the output can
+    /// shrink their copy by the same amount.
+    RemovedBuffer { ch: char, restored: usize },
     /// Nothing to remove
     Empty,
 }
@@ -239,12 +241,47 @@ impl RomajiConverter {
     /// Handle backspace
     pub fn backspace(&mut self) -> BackspaceResult {
         if let Some(ch) = self.buffer.pop() {
-            BackspaceResult::RemovedBuffer(ch)
+            let restored = self.restore_pending();
+            BackspaceResult::RemovedBuffer { ch, restored }
         } else if let Some(ch) = self.output.pop() {
             BackspaceResult::RemovedOutput(ch)
         } else {
             BackspaceResult::Empty
         }
+    }
+
+    /// Move a half-typed romaji tail from the output back into the buffer.
+    ///
+    /// Once the input leaves every trie path, [`Self::try_convert`] passes the
+    /// leading characters through one at a time: `rys` ends up as output `ry`
+    /// plus buffer `s`. Deleting the offending `s` would otherwise strand `ry`
+    /// in the output as literal ASCII, so the next `a` yields `ryあ` instead of
+    /// the intended `りゃ`. Returns the number of characters moved.
+    fn restore_pending(&mut self) -> usize {
+        if !self.buffer.is_empty() {
+            return 0;
+        }
+
+        // Only lowercase ASCII can be a pass-through remnant; every conversion
+        // result is kana or a full-width symbol.
+        let tail_len = self
+            .output
+            .chars()
+            .rev()
+            .take_while(char::is_ascii_lowercase)
+            .count();
+
+        // Longest candidate first: a shorter one would leave stray ASCII in
+        // front of the restored buffer. The tail is ASCII, so byte and
+        // character offsets coincide.
+        for len in (1..=tail_len).rev() {
+            let start = self.output.len() - len;
+            if self.trie.is_partial_path(&self.output[start..]) {
+                self.buffer = self.output.split_off(start);
+                return len;
+            }
+        }
+        0
     }
 
     /// Get the current output
@@ -452,11 +489,62 @@ mod tests {
         assert_eq!(conv.buffer(), "k");
 
         let result = conv.backspace();
-        assert_eq!(result, BackspaceResult::RemovedBuffer('k'));
+        assert_eq!(
+            result,
+            BackspaceResult::RemovedBuffer {
+                ch: 'k',
+                restored: 0
+            }
+        );
         assert_eq!(conv.buffer(), "");
 
         let result = conv.backspace();
         assert_eq!(result, BackspaceResult::RemovedOutput('か'));
+    }
+
+    #[test]
+    fn test_backspace_restores_passed_through_romaji() {
+        let mut conv = RomajiConverter::new();
+        // "rys" leaves every trie path, so "ry" is passed through to the output
+        // and only "s" stays pending.
+        for ch in "rys".chars() {
+            conv.push(ch);
+        }
+        assert_eq!(conv.output(), "ry");
+        assert_eq!(conv.buffer(), "s");
+
+        // Erasing the mistyped "s" puts "ry" back in play instead of freezing
+        // it as literal ASCII.
+        let result = conv.backspace();
+        assert_eq!(
+            result,
+            BackspaceResult::RemovedBuffer {
+                ch: 's',
+                restored: 2
+            }
+        );
+        assert_eq!(conv.output(), "");
+        assert_eq!(conv.buffer(), "ry");
+
+        conv.push('a');
+        assert_eq!(conv.output(), "りゃ");
+        assert_eq!(conv.buffer(), "");
+    }
+
+    #[test]
+    fn test_backspace_restore_stops_at_converted_output() {
+        let mut conv = RomajiConverter::new();
+        for ch in "arys".chars() {
+            conv.push(ch);
+        }
+        assert_eq!(conv.output(), "あry");
+
+        conv.backspace();
+        assert_eq!(conv.output(), "あ");
+        assert_eq!(conv.buffer(), "ry");
+
+        conv.push('a');
+        assert_eq!(conv.full_text(), "ありゃ");
     }
 
     #[test]

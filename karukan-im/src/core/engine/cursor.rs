@@ -24,7 +24,18 @@ impl InputMethodEngine {
     pub(super) fn backspace_composing(&mut self) -> EngineResult {
         // If romaji buffer is not empty, backspace from buffer (not from composed text)
         if !self.converters.romaji.buffer().is_empty() {
-            self.converters.romaji.backspace();
+            // A romaji tail the converter had passed through (e.g. the `ry` of
+            // a mistyped `rys`) is already mirrored into the composed text, so
+            // whatever the converter takes back has to be removed from there
+            // too — otherwise it would be duplicated once the syllable
+            // completes.
+            if let BackspaceResult::RemovedBuffer { restored, .. } =
+                self.converters.romaji.backspace()
+            {
+                for _ in 0..restored {
+                    self.input_buf.remove_char_before_cursor();
+                }
+            }
             if let Some(result) = self.try_reset_if_empty() {
                 return result;
             }
