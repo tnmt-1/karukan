@@ -31,6 +31,10 @@ pub struct Candidate {
     /// rewriter descriptions like `[全]英大文字`. Source labels are
     /// intentionally excluded so they don't duplicate the aux text.
     pub description: Option<String>,
+    /// Whether this candidate came from the learning cache. Learning-sourced
+    /// candidates can be removed with Ctrl+Delete (Mozc's
+    /// DeleteSelectedCandidate). Not serialized to frontends.
+    pub is_learning: bool,
 }
 
 impl Candidate {
@@ -40,6 +44,7 @@ impl Candidate {
             reading: None,
             source_label: None,
             description: None,
+            is_learning: false,
         }
     }
 
@@ -49,6 +54,7 @@ impl Candidate {
             reading: Some(reading.into()),
             source_label: None,
             description: None,
+            is_learning: false,
         }
     }
 }

@@ -251,6 +251,7 @@ impl InputMethodEngine {
                         reading: Some(cand_reading),
                         source_label: (!label.is_empty()).then(|| label.to_string()),
                         description: ac.description,
+                        is_learning: ac.source == CandidateSource::Learning,
                     }
                 })
                 .collect(),
@@ -513,6 +514,7 @@ impl InputMethodEngine {
                     reading: Some(reading.to_string()),
                     source_label: Some(label.clone()),
                     description: None,
+                    is_learning: true,
                 });
             }
         }
@@ -531,6 +533,7 @@ impl InputMethodEngine {
                     reading: Some(full_reading),
                     source_label: Some(label.clone()),
                     description: None,
+                    is_learning: true,
                 });
             }
         }
@@ -549,6 +552,7 @@ impl InputMethodEngine {
                 reading: Some(reading.to_string()),
                 source_label: Some(ac.source.label().to_string()),
                 description: None,
+                is_learning: false,
             })
             .collect()
     }
@@ -567,6 +571,7 @@ impl InputMethodEngine {
                 reading: Some(reading.to_string()),
                 source_label: Some(source_label.clone()),
                 description,
+                is_learning: false,
             })
             .collect()
     }
@@ -634,6 +639,7 @@ impl InputMethodEngine {
                         reading: Some(cand_reading),
                         source_label: (!label.is_empty()).then(|| label.to_string()),
                         description: ac.description,
+                        is_learning: ac.source == CandidateSource::Learning,
                     }
                 })
                 .collect(),
@@ -772,6 +778,13 @@ impl InputMethodEngine {
             }
         }
 
+        // Ctrl+Delete: remove the selected candidate's learning entry
+        // (Mozc's DeleteSelectedCandidate). Must be checked before the
+        // keysym match below so modifier-less arms don't shadow it.
+        if key.modifiers.control_key && !key.modifiers.alt_key && key.keysym == Keysym::DELETE {
+            return self.delete_selected_candidate();
+        }
+
         match key.keysym {
             Keysym::RETURN | Keysym::KP_ENTER => self.commit_conversion(),
             Keysym::ESCAPE => self.cancel_conversion(),
@@ -823,6 +836,46 @@ impl InputMethodEngine {
                 EngineResult::not_consumed()
             }
         }
+    }
+
+    /// Ctrl+Delete: remove the selected candidate's learning entry (Mozc's
+    /// DeleteSelectedCandidate), then rebuild the candidate list so the
+    /// entry disappears while other learned entries for the reading remain.
+    ///
+    /// Only learning-sourced candidates are deletable; otherwise the key is
+    /// consumed as a no-op — an unconsumed Ctrl+Delete would reach the
+    /// application and edit text behind the open candidate window.
+    fn delete_selected_candidate(&mut self) -> EngineResult {
+        let (full_reading, range_start, range_end) = match &self.state {
+            InputState::Conversion {
+                full_reading,
+                range_start,
+                range_end,
+                ..
+            } => (full_reading.clone(), *range_start, *range_end),
+            _ => return EngineResult::not_consumed(),
+        };
+
+        let selected = match &self.state {
+            InputState::Conversion { candidates, .. } => candidates
+                .selected()
+                .filter(|c| c.is_learning)
+                .map(|c| (c.text.clone(), c.reading.clone())),
+            _ => None,
+        };
+        let Some((surface, Some(reading))) = selected else {
+            return EngineResult::consumed();
+        };
+
+        let removed = self
+            .learning
+            .as_mut()
+            .is_some_and(|cache| cache.remove(&reading, &surface));
+        if !removed {
+            return EngineResult::consumed();
+        }
+
+        self.apply_conversion_range(full_reading, range_start, range_end)
     }
 
     /// Get selected text and reading from conversion state, or None if not in conversion

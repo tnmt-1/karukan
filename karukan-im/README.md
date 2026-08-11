@@ -51,6 +51,7 @@ fcitx5（Linux）および macOS Swift フロントエンドで共有される�
 | Home / End | 変換範囲を先頭 / 末尾へ移動 |
 | Enter | 選択中の候補を確定 |
 | Escape | 変換をキャンセル（ひらがなに戻る） |
+| Ctrl+Delete | 選択中の学習候補（📝）を学習履歴から削除（macOSでは Ctrl+Fn+Delete） |
 | 文字キー | 選択中の候補を確定して新しい入力を開始 |
 
 ### モード切り替え
@@ -208,4 +209,6 @@ cp dict.bin ~/Library/"Application Support"/com.karukan.karukan-im/
 - スコアはrecency（最終使用日時）重視 + 頻度補正
 - IME切り替え・ウィンドウ切り替え時に自動保存（commit のたびには保存しない）
 - `[learning] enabled = false` で無効化可能
-- 学習履歴を削除するには: `rm ~/.local/share/karukan-im/learning.tsv`
+- 誤って学習した候補は、変換モードでその候補を選択して `Ctrl+Delete`（macOSでは `Ctrl+Fn+Delete`）で個別に削除可能（Mozc と同じ操作）
+- 学習履歴を全削除するには: `rm ~/.local/share/karukan-im/learning.tsv`
+  - IMEを停止した状態で実行してください（稼働中はメモリ上のキャッシュが次回保存時にファイルを書き戻します）

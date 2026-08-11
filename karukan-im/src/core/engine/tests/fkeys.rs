@@ -36,6 +36,7 @@ fn conversion_engine(reading: &str, candidates: Vec<&str>) -> InputMethodEngine 
             reading: Some(reading.to_string()),
             source_label: None,
             description: None,
+            is_learning: false,
         })
         .collect();
     let candidate_list = CandidateList::new(cands);

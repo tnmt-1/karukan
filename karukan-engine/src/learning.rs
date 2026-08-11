@@ -62,6 +62,23 @@ impl LearningCache {
         self.dirty = true;
     }
 
+    /// Remove a learned `(reading, surface)` pair. Returns true if an entry was removed.
+    pub fn remove(&mut self, reading: &str, surface: &str) -> bool {
+        let Some(entries) = self.entries.get_mut(reading) else {
+            return false;
+        };
+        let before = entries.len();
+        entries.retain(|e| e.surface != surface);
+        let removed = entries.len() != before;
+        if entries.is_empty() {
+            self.entries.remove(reading);
+        }
+        if removed {
+            self.dirty = true;
+        }
+        removed
+    }
+
     /// Exact-match lookup: returns `(surface, score)` pairs sorted by score descending.
     pub fn lookup(&self, reading: &str) -> Vec<(String, f64)> {
         let now = now_unix();
@@ -295,6 +312,71 @@ mod tests {
         cache.record("きょう", "今日");
         let results = cache.prefix_lookup("あ");
         assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_remove_existing() {
+        let mut cache = LearningCache::new(100);
+        cache.record("きょう", "今日");
+        let file = NamedTempFile::new().unwrap();
+        cache.save(file.path()).unwrap();
+        assert!(!cache.is_dirty());
+
+        assert!(cache.remove("きょう", "今日"));
+        assert!(cache.is_dirty());
+        assert!(cache.lookup("きょう").is_empty());
+    }
+
+    #[test]
+    fn test_remove_nonexistent() {
+        let mut cache = LearningCache::new(100);
+        cache.record("きょう", "今日");
+        let file = NamedTempFile::new().unwrap();
+        cache.save(file.path()).unwrap();
+
+        assert!(!cache.remove("きょう", "京"));
+        assert!(!cache.remove("あした", "明日"));
+        assert!(!cache.is_dirty());
+        assert_eq!(cache.entry_count(), 1);
+    }
+
+    #[test]
+    fn test_remove_last_entry_drops_key() {
+        let mut cache = LearningCache::new(100);
+        cache.record("きょう", "今日");
+
+        assert!(cache.remove("きょう", "今日"));
+        assert_eq!(cache.entry_count(), 0);
+        assert!(cache.prefix_lookup("きょ").is_empty());
+    }
+
+    #[test]
+    fn test_remove_keeps_sibling_surfaces() {
+        let mut cache = LearningCache::new(100);
+        cache.record("きょう", "今日");
+        cache.record("きょう", "京");
+
+        assert!(cache.remove("きょう", "今日"));
+        let results = cache.lookup("きょう");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, "京");
+    }
+
+    #[test]
+    fn test_remove_persists() {
+        let mut cache = LearningCache::new(100);
+        cache.record("きょう", "今日");
+        cache.record("あした", "明日");
+
+        assert!(cache.remove("きょう", "今日"));
+
+        let file = NamedTempFile::new().unwrap();
+        cache.save(file.path()).unwrap();
+
+        let loaded = LearningCache::load(file.path(), 100).unwrap();
+        assert_eq!(loaded.entry_count(), 1);
+        assert!(loaded.lookup("きょう").is_empty());
+        assert_eq!(loaded.lookup("あした")[0].0, "明日");
     }
 
     #[test]
