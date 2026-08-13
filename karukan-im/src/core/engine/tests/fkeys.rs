@@ -386,20 +386,144 @@ fn f10_converts_selected_candidate_to_half_width() {
     assert_eq!(commit_text(&result), Some("ABC"));
 }
 
+// ---------------------------------------------------------------------------
+// Learning: F6/F7/F8 (and Ctrl+J) record the commit, F9/F10 (and Ctrl+L /
+// Ctrl+;) do not. Recording was once removed entirely (f20de50: a one-off F7
+// commit dominated the candidate order forever), but the recency-bias
+// softening in the learning score made that safe to revert for kana-target
+// keys; alphanumeric targets stay excluded to keep the kana-keyed cache clean.
+// ---------------------------------------------------------------------------
+
+fn learning_surfaces(engine: &InputMethodEngine, reading: &str) -> Vec<String> {
+    engine
+        .learning
+        .as_ref()
+        .unwrap()
+        .lookup(reading)
+        .into_iter()
+        .map(|(surface, _)| surface)
+        .collect()
+}
+
+fn with_learning_cache(mut engine: InputMethodEngine) -> InputMethodEngine {
+    engine.learning = Some(karukan_engine::LearningCache::new(100));
+    engine
+}
+
 #[test]
-fn f6_on_conversion_transforms_without_learning() {
-    // F-keys are formatting actions: they transform and commit but must
-    // NOT record into the learning cache (regression: one-off F7
-    // formatting polluted the candidate order for the reading).
-    let mut engine = conversion_engine("あいう", vec!["あいう"]);
-    let cache = karukan_engine::LearningCache::new(100);
-    engine.learning = Some(cache);
+fn f6_on_conversion_records_learning() {
+    let mut engine = with_learning_cache(conversion_engine("あいう", vec!["あいう"]));
 
     let result = engine.process_key(&press_key(Keysym::F6));
     assert!(result.consumed);
     assert!(matches!(engine.state(), InputState::Empty));
-    let cache = engine.learning.as_ref().unwrap();
-    assert_eq!(cache.entry_count(), 0, "F6-F10 must not record learning");
+    assert_eq!(engine.learning.as_ref().unwrap().entry_count(), 1);
+    // Identity pairs are recorded too: "leave this reading as-is" is a
+    // preference signal.
+    assert_eq!(learning_surfaces(&engine, "あいう"), vec!["あいう"]);
+}
+
+#[test]
+fn f7_composing_records_learning() {
+    let mut engine = with_learning_cache(composed_engine("かきく"));
+    let result = engine.process_key(&press_key(Keysym::F7));
+    assert_eq!(commit_text(&result), Some("カキク"));
+    assert_eq!(learning_surfaces(&engine, "かきく"), vec!["カキク"]);
+}
+
+#[test]
+fn f8_composing_records_learning() {
+    let mut engine = with_learning_cache(composed_engine("がっこう"));
+    let result = engine.process_key(&press_key(Keysym::F8));
+    assert_eq!(commit_text(&result), Some("ｶﾞｯｺｳ"));
+    assert_eq!(learning_surfaces(&engine, "がっこう"), vec!["ｶﾞｯｺｳ"]);
+}
+
+#[test]
+fn f6_composing_records_identity() {
+    let mut engine = with_learning_cache(composed_engine("きょう"));
+    let result = engine.process_key(&press_key(Keysym::F6));
+    assert_eq!(commit_text(&result), Some("きょう"));
+    assert_eq!(learning_surfaces(&engine, "きょう"), vec!["きょう"]);
+}
+
+#[test]
+fn f7_on_conversion_records_selected_transform() {
+    let mut engine = with_learning_cache(conversion_engine("かきく", vec!["かきく", "カキク"]));
+    let result = engine.process_key(&press_key(Keysym::F7));
+    assert_eq!(commit_text(&result), Some("カキク"));
+    assert_eq!(learning_surfaces(&engine, "かきく"), vec!["カキク"]);
+}
+
+#[test]
+fn f9_does_not_record_learning() {
+    let mut engine = with_learning_cache(composed_engine("かきく"));
+    let result = engine.process_key(&press_key(Keysym::F9));
+    assert!(result.consumed);
+    assert_eq!(engine.learning.as_ref().unwrap().entry_count(), 0);
+}
+
+#[test]
+fn f10_does_not_record_learning() {
+    let mut engine = with_learning_cache(composed_engine("あいう"));
+    let result = engine.process_key(&press_key(Keysym::F10));
+    assert!(result.consumed);
+    assert_eq!(engine.learning.as_ref().unwrap().entry_count(), 0);
+}
+
+#[test]
+fn ctrl_j_records_learning_like_f6() {
+    let mut engine = with_learning_cache(composed_engine("あいう"));
+    let result = engine.process_key(&press_ctrl(Keysym::KEY_J));
+    assert_eq!(commit_text(&result), Some("あいう"));
+    assert_eq!(learning_surfaces(&engine, "あいう"), vec!["あいう"]);
+}
+
+#[test]
+fn ctrl_l_does_not_record_learning() {
+    let mut engine = with_learning_cache(composed_engine("abc"));
+    let result = engine.process_key(&press_ctrl(Keysym::KEY_L));
+    assert!(result.consumed);
+    assert_eq!(engine.learning.as_ref().unwrap().entry_count(), 0);
+}
+
+#[test]
+fn ctrl_semicolon_does_not_record_learning() {
+    let mut engine = with_learning_cache(composed_engine("ＡＢＣ"));
+    let result = engine.process_key(&press_ctrl(Keysym(0x003b)));
+    assert!(result.consumed);
+    assert_eq!(engine.learning.as_ref().unwrap().entry_count(), 0);
+}
+
+#[test]
+fn f7_narrowed_range_records_only_selected_segment() {
+    // Narrow the conversion range to the first 3 chars of a 4-char reading:
+    // learning must record the selected segment's pair only, not the
+    // composite commit text.
+    let mut engine = with_learning_cache(conversion_engine("かきくと", vec!["かきくと"]));
+    if let InputState::Conversion {
+        candidates,
+        range_end,
+        ..
+    } = &mut engine.state
+    {
+        *range_end = 3;
+        *candidates = CandidateList::new(vec![Candidate {
+            text: "かきく".to_string(),
+            reading: Some("かきく".to_string()),
+            source_label: None,
+            description: None,
+            is_learning: false,
+        }]);
+    } else {
+        panic!("expected Conversion state");
+    }
+
+    let result = engine.process_key(&press_key(Keysym::F7));
+    assert_eq!(commit_text(&result), Some("カキクト"));
+    assert_eq!(learning_surfaces(&engine, "かきく"), vec!["カキク"]);
+    assert!(learning_surfaces(&engine, "かきくと").is_empty());
+    assert_eq!(engine.learning.as_ref().unwrap().entry_count(), 1);
 }
 
 // ---------------------------------------------------------------------------

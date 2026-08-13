@@ -13,6 +13,10 @@
 //! In Empty state all F-keys pass through (not consumed) so the application
 //! sees them. In Composing or Conversion state the current text is transformed
 //! and committed immediately.
+//!
+//! F6/F7/F8 (and Ctrl+J) record the committed reading→surface pair in the
+//! learning cache; F9/F10 (and Ctrl+L / Ctrl+;) do not, because their
+//! romaji/alphanumeric surfaces would pollute the kana-keyed cache.
 
 use super::*;
 
@@ -32,6 +36,9 @@ impl InputMethodEngine {
     /// shortcuts). The macOS-standard conversion shortcuts Ctrl+J (ひらがな),
     /// Ctrl+L (全角英数), Ctrl+; (半角英数) are accepted as equivalents of
     /// F6/F9/F10 (issue #49); Ctrl+K stays the katakana *mode* toggle.
+    ///
+    /// Kana-formatting commits (F6/F7/F8, Ctrl+J) are recorded in the
+    /// learning cache; alphanumeric ones (F9/F10, Ctrl+L, Ctrl+;) are not.
     pub(super) fn handle_fkey(&mut self, key: &KeyEvent) -> Option<EngineResult> {
         let is_fkey = matches!(
             key.keysym,
@@ -49,15 +56,15 @@ impl InputMethodEngine {
                     | Keysym::KEY_L_UPPER
                     | Keysym(0x003b) // ';'
             );
-        let transform = match key.keysym {
-            Keysym::F6 => f6_transform,
-            Keysym::F7 => f7_transform,
-            Keysym::F8 => f8_transform,
-            Keysym::F9 => f9_transform,
-            Keysym::F10 => f10_transform,
-            Keysym::KEY_J | Keysym::KEY_J_UPPER if is_ctrl_convert => f6_transform,
-            Keysym::KEY_L | Keysym::KEY_L_UPPER if is_ctrl_convert => f9_transform,
-            Keysym(0x003b) if is_ctrl_convert => f10_transform,
+        let (transform, learn): (fn(&str) -> String, bool) = match key.keysym {
+            Keysym::F6 => (f6_transform, true),
+            Keysym::F7 => (f7_transform, true),
+            Keysym::F8 => (f8_transform, true),
+            Keysym::F9 => (f9_transform, false),
+            Keysym::F10 => (f10_transform, false),
+            Keysym::KEY_J | Keysym::KEY_J_UPPER if is_ctrl_convert => (f6_transform, true),
+            Keysym::KEY_L | Keysym::KEY_L_UPPER if is_ctrl_convert => (f9_transform, false),
+            Keysym(0x003b) if is_ctrl_convert => (f10_transform, false),
             _ => return None,
         };
 
@@ -79,12 +86,15 @@ impl InputMethodEngine {
             return Some(EngineResult::not_consumed());
         }
 
-        // Get text to transform, depending on state
-        let text = match &self.state {
+        // Get text to transform and the (reading, source) pair for learning,
+        // depending on state
+        let (text, learn_source) = match &self.state {
             InputState::Composing { .. } => {
                 // Flush any pending romaji into the input buffer first
                 self.flush_romaji_to_composed();
-                self.input_buf.text.clone()
+                let text = self.input_buf.text.clone();
+                let learn_source = Some((text.clone(), text.clone()));
+                (text, learn_source)
             }
             InputState::Conversion {
                 candidates,
@@ -97,15 +107,22 @@ impl InputMethodEngine {
                     .selected_text()
                     .map(|s| s.to_string())
                     .unwrap_or_default();
+                // Learning uses the selected segment's own reading, matching
+                // the normal commit paths (commit_conversion etc.)
+                let learn_source = candidates
+                    .selected()
+                    .and_then(|c| c.reading.clone())
+                    .map(|reading| (reading, selected.clone()));
                 let full_len = full_reading.chars().count();
-                if *range_start == 0 && *range_end == full_len {
+                let text = if *range_start == 0 && *range_end == full_len {
                     selected
                 } else {
                     let chars: Vec<char> = full_reading.chars().collect();
                     let before: String = chars[..*range_start].iter().collect();
                     let after: String = chars[*range_end..].iter().collect();
                     format!("{}{}{}", before, selected, after)
-                }
+                };
+                (text, learn_source)
             }
             _ => return Some(EngineResult::not_consumed()),
         };
@@ -116,10 +133,18 @@ impl InputMethodEngine {
 
         let transformed = transform(&text);
 
-        // Deliberately NO learning record here: F6-F10 are transient
-        // formatting actions (Mozc doesn't record them either). Recording
-        // e.g. きょう → キョウ would make a one-off katakana formatting
-        // choice dominate the candidate order for that reading forever.
+        // Learning: F6/F7/F8 (and Ctrl+J) kana-formatting commits ARE
+        // recorded — repeatedly forcing e.g. こーひー → コーヒー is a real
+        // preference signal (the recency-bias softening in the learning
+        // score keeps a one-off from dominating). F9/F10 (and Ctrl+L /
+        // Ctrl+;) are NOT: romaji/alphanumeric surfaces would pollute the
+        // kana-keyed learning cache.
+        if learn && let Some((reading, target)) = learn_source {
+            let surface = transform(&target);
+            if !reading.is_empty() && !surface.is_empty() {
+                self.record_learning(&reading, &surface);
+            }
+        }
 
         // Clear all state
         self.converters.romaji.reset();
