@@ -29,15 +29,30 @@ impl InputMethodEngine {
             // whatever the converter takes back has to be removed from there
             // too — otherwise it would be duplicated once the syllable
             // completes.
-            if let BackspaceResult::RemovedBuffer { restored, .. } =
+            let restored = if let BackspaceResult::RemovedBuffer { restored, .. } =
                 self.converters.romaji.backspace()
             {
                 for _ in 0..restored {
                     self.input_buf.remove_char_before_cursor();
                 }
-            }
+                restored
+            } else {
+                0
+            };
             if let Some(result) = self.try_reset_if_empty() {
                 return result;
+            }
+
+            if restored > 0 {
+                // The converter moved a pass-through tail (e.g. the `ry` of a
+                // mistyped `rys`) back into its buffer, so input_buf shrank.
+                // live.text / chunks still mirror the pre-restore buffer and
+                // would render the restored romaji twice (live.text + buffer).
+                // Drop them and recompute for the shrunk buffer; without this,
+                // live conversion shows e.g. `買ryry` after the backspace.
+                self.live.text.clear();
+                self.chunks.clear();
+                return self.refresh_input_state();
             }
 
             let preedit = self.set_composing_state();

@@ -459,3 +459,32 @@ fn test_ctrl_shift_l_shows_aux_text() {
     );
     assert!(has_aux);
 }
+
+#[test]
+fn test_backspace_restore_live_conversion_no_double_display() {
+    // Repro for the pass-through restore double display: in live conversion
+    // mode, typing the mistyped "karys" leaves かry mirrored in input_buf and
+    // "s" pending. Backspace restores "ry" into the romaji buffer, but
+    // live.text still holds the stale "かry" conversion, so the preedit
+    // renders live.text + buffer = "かryry" (the restored "ry" appears twice).
+    let mut engine = make_live_conversion_engine();
+    for ch in ['k', 'a', 'r', 'y', 's'] {
+        engine.process_key(&press(ch));
+    }
+    assert_eq!(engine.input_buf.text, "かry");
+    assert_eq!(engine.converters.romaji.buffer(), "s");
+    // Simulate a real model conversion (differs from the reading, so
+    // chunked_auto_suggest would keep live.text populated).
+    engine.live.text = "買ry".to_string();
+
+    engine.process_key(&press_key(Keysym::BACKSPACE));
+
+    assert_eq!(engine.converters.romaji.buffer(), "ry");
+    // The preedit must show the restored romaji exactly once. (With a real
+    // model, live.text would be recomputed to the conversion of `か` and the
+    // preedit would read e.g. `買ry`; with no model in tests, chunked
+    // auto-suggest yields the reading itself, so `かry` — either way the
+    // restored `ry` must not be doubled by a stale live.text.)
+    let preedit = engine.preedit().unwrap().text();
+    assert_eq!(preedit.matches("ry").count(), 1, "restored romaji doubled: {preedit}");
+}
