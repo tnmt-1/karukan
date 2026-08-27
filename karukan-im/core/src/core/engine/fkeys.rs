@@ -87,21 +87,29 @@ impl InputMethodEngine {
                 // settled kana reading. Mirrors the Enter path.
                 let live = self.live_text_with_pending();
                 let reading = self.input_buf.settled_reading(&self.converters.romaji);
-                let text = if live.is_empty() { reading.clone() } else { live };
+                let text = if live.is_empty() {
+                    reading.clone()
+                } else {
+                    live
+                };
                 let learn_source = Some((reading, text.clone()));
                 (text, learn_source)
             }
-            InputState::Conversion { candidates, reading, .. } => {
+            InputState::Conversion {
+                candidates,
+                reading,
+                ..
+            } => {
                 let selected = candidates
                     .selected_text()
                     .map(str::to_string)
                     .unwrap_or_else(|| reading.clone());
                 // Learning uses the selected candidate's own reading,
                 // matching the normal commit paths.
-                let learn_source =
-                    candidates.selected().and_then(|c| c.reading.clone()).map(|r| {
-                        (r, selected.clone())
-                    });
+                let learn_source = candidates
+                    .selected()
+                    .and_then(|c| c.reading.clone())
+                    .map(|r| (r, selected.clone()));
                 (selected, learn_source)
             }
             _ => return Some(EngineResult::not_consumed()),
@@ -119,9 +127,7 @@ impl InputMethodEngine {
         // one-off from dominating). F9/F10 (and Ctrl+L / Ctrl+;) are NOT:
         // romaji/alphanumeric surfaces would pollute the kana-keyed
         // learning cache.
-        if learn
-            && let Some((reading, target)) = learn_source
-        {
+        if learn && let Some((reading, target)) = learn_source {
             let surface = transform(&target);
             if !reading.is_empty() && !surface.is_empty() {
                 self.record_learning(&reading, &surface);

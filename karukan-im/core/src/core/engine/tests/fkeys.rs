@@ -106,13 +106,7 @@ fn learning_surfaces(engine: &InputMethodEngine, reading: &str) -> Vec<String> {
 
 #[test]
 fn fkeys_in_empty_state_pass_through() {
-    for keysym in [
-        Keysym::F6,
-        Keysym::F7,
-        Keysym::F8,
-        Keysym::F9,
-        Keysym::F10,
-    ] {
+    for keysym in [Keysym::F6, Keysym::F7, Keysym::F8, Keysym::F9, Keysym::F10] {
         let mut engine = InputMethodEngine::new();
         let result = engine.process_key(&press_key(keysym));
         assert!(!result.consumed, "keysym {keysym:?} must pass through");
@@ -364,13 +358,7 @@ fn f6_settles_pending_romaji_before_conversion() {
 
 #[test]
 fn fkey_on_empty_composition_not_consumed() {
-    for keysym in [
-        Keysym::F6,
-        Keysym::F7,
-        Keysym::F8,
-        Keysym::F9,
-        Keysym::F10,
-    ] {
+    for keysym in [Keysym::F6, Keysym::F7, Keysym::F8, Keysym::F9, Keysym::F10] {
         let mut engine = InputMethodEngine::new();
         engine.state = InputState::Composing {
             preedit: Preedit::new(),
