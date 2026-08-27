@@ -80,25 +80,6 @@ impl TrieNode {
             },
         }
     }
-
-    /// Whether `input` walks the trie without completing a rule.
-    ///
-    /// True only when every character has a child node and the node reached
-    /// carries no output of its own — the signature of a half-typed syllable
-    /// such as `ry`, as opposed to `n` (already `ん`) or `zq` (off the path).
-    pub fn is_partial_path(&self, input: &str) -> bool {
-        if input.is_empty() {
-            return false;
-        }
-        let mut node = self;
-        for ch in input.chars() {
-            match node.children.get(&ch) {
-                Some(child) => node = child,
-                None => return false,
-            }
-        }
-        node.output.is_none()
-    }
 }
 
 impl Default for TrieNode {
