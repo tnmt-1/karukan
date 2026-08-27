@@ -367,3 +367,33 @@ fn fkey_on_empty_composition_not_consumed() {
         assert!(!result.consumed, "keysym {keysym:?} must pass through");
     }
 }
+
+/// F-keys transform the *reading*, not the live-converted surface: even
+/// when live conversion is currently rendering kanji, F7 must still
+/// produce katakana of what was actually typed (standard IME behavior;
+/// fork port caveat regression-test).
+#[test]
+fn fkey_ignores_live_conversion_surface_and_uses_reading() {
+    let mut engine = composed_engine("こんにちは");
+    // Pretend live conversion is rendering a kanji surface.
+    engine.live.enabled = true;
+    engine.live.shown = true;
+    engine.chunks = vec![ComposingChunk {
+        reading: "こんにちは".to_string(),
+        converted: "今日は".to_string(),
+    }];
+
+    let result = engine.process_key(&press_key(Keysym::F7));
+    assert!(result.consumed);
+    assert_eq!(commit_text(&result), Some("コンニチハ"));
+}
+
+/// Same rule in conversion state: a segment displayed as kanji must still
+/// transform from its reading (ワタシ), not pass the kanji through.
+#[test]
+fn fkey_in_conversion_uses_candidate_reading_not_surface() {
+    let mut engine = conversion_engine("わたし", vec!["私"]);
+    let result = engine.process_key(&press_key(Keysym::F7));
+    assert!(result.consumed);
+    assert_eq!(commit_text(&result), Some("ワタシ"));
+}

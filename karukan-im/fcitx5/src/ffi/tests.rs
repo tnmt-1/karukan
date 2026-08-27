@@ -17,6 +17,11 @@ const XKB_KEY_ESCAPE: u32 = 0xff1b;
 const XKB_KEY_BACKSPACE: u32 = 0xff08;
 const XKB_KEY_SHIFT_L: u32 = 0xffe1;
 const XKB_KEY_LOWER_L: u32 = 0x6c;
+const XKB_KEY_F6: u32 = 0xffc3;
+const XKB_KEY_F7: u32 = 0xffc4;
+const XKB_KEY_F8: u32 = 0xffc5;
+const XKB_KEY_F9: u32 = 0xffc6;
+const XKB_KEY_F10: u32 = 0xffc7;
 const SHIFT_MASK: u32 = karukan_im::core::keycode::KeyModifiers::SHIFT_MASK;
 const CONTROL_MASK: u32 = karukan_im::core::keycode::KeyModifiers::CONTROL_MASK;
 
@@ -208,6 +213,38 @@ fn test_escape_cancel() {
     e.press(XKB_KEY_ESCAPE);
     assert_eq!(e.preedit_len(), 0);
     assert!(!e.has_commit());
+}
+
+/// F6-F10 through the raw FFI surface (the same path fcitx5 uses): each
+/// function key must transform the current composition and commit it
+/// immediately.
+#[test]
+fn test_fkeys_transform_and_commit() {
+    let e = TestEngine::new();
+    disable_live_conversion(&e);
+
+    // F7: hiragana → full-width katakana
+    e.press(XKB_KEY_A);
+    assert!(e.press(XKB_KEY_F7));
+    assert_eq!(e.commit_text(), "ア");
+
+    // F8: hiragana → half-width katakana
+    e.press(XKB_KEY_A);
+    assert!(e.press(XKB_KEY_F8));
+    assert_eq!(e.commit_text(), "ｱ");
+
+    // F9: hiragana → romaji → full-width alphanumeric
+    e.press(XKB_KEY_A);
+    assert!(e.press(XKB_KEY_F9));
+    assert_eq!(e.commit_text(), "ａ");
+
+    // F10: hiragana → romaji (half-width)
+    e.press(XKB_KEY_A);
+    assert!(e.press(XKB_KEY_F10));
+    assert_eq!(e.commit_text(), "a");
+
+    // Empty state: F-keys pass through (not consumed)
+    assert!(!e.press(XKB_KEY_F6));
 }
 
 #[test]

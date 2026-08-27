@@ -82,35 +82,31 @@ impl InputMethodEngine {
         // depending on state.
         let (text, learn_source) = match &self.state {
             InputState::Composing { .. } => {
-                // What the user sees wins: the live-converted display when
-                // it is shown (with its pending romaji tail), otherwise the
-                // settled kana reading. Mirrors the Enter path.
-                let live = self.live_text_with_pending();
+                // Transform the *reading* (settled kana incl. any pending
+                // romaji tail), not the live-converted display: standard IME
+                // behavior (F7 on こんにちは shows コンニチハ regardless of
+                // whether live conversion is currently rendering a kanji
+                // surface like 今日は). Mirrors the fork implementation,
+                // which transformed input_buf.text.
                 let reading = self.input_buf.settled_reading(&self.converters.romaji);
-                let text = if live.is_empty() {
-                    reading.clone()
-                } else {
-                    live
-                };
-                let learn_source = Some((reading, text.clone()));
-                (text, learn_source)
+                let learn_source = Some((reading.clone(), reading.clone()));
+                (reading, learn_source)
             }
             InputState::Conversion {
                 candidates,
                 reading,
                 ..
             } => {
-                let selected = candidates
-                    .selected_text()
-                    .map(str::to_string)
-                    .unwrap_or_else(|| reading.clone());
-                // Learning uses the selected candidate's own reading,
-                // matching the normal commit paths.
-                let learn_source = candidates
+                // Also reading-based: the selected candidate's own reading
+                // (standard IME: F7 on a segment displayed as 私 must give
+                // ワタシ, not pass the kanji through). Falls back to the
+                // conversion reading when the candidate carries none.
+                let seg_reading = candidates
                     .selected()
                     .and_then(|c| c.reading.clone())
-                    .map(|r| (r, selected.clone()));
-                (selected, learn_source)
+                    .unwrap_or_else(|| reading.clone());
+                let learn_source = Some((seg_reading.clone(), seg_reading.clone()));
+                (seg_reading, learn_source)
             }
             _ => return Some(EngineResult::not_consumed()),
         };

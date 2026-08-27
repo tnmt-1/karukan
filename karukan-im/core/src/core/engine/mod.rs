@@ -595,9 +595,10 @@ impl InputMethodEngine {
         }
 
         // F6-F10 (and Ctrl+L / Ctrl+;): function key conversion — transform
-        // the composing/conversion text to hiragana, katakana, half-width
-        // katakana, or full/half alphanumeric and commit it immediately.
-        // Handles Empty (pass through) and Composing/Conversion states.
+        // the composing/conversion *reading* to hiragana, katakana,
+        // half-width katakana, or full/half alphanumeric and commit it
+        // immediately. Handles Empty (pass through) and Composing/
+        // Conversion states.
         if let Some(result) = self.handle_fkey(key) {
             self.metrics.process_key_ms = 0; // no conversion time to report
             return result;
