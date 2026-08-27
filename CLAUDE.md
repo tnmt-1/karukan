@@ -12,6 +12,17 @@ karukan is a Japanese Input Method system for Linux and macOS, consisting of fou
 - **karukan-fcitx5** (`karukan-im/fcitx5/`): fcitx5 Linux frontend — C FFI (`src/ffi/`) and C++ addon (`fcitx5-addon/`) that wrap karukan-im
 - **karukan-macos** (`karukan-im/macos/`): Swift/InputMethodKit frontend that spawns `karukan-imserver` as a bundled child process
 
+## Fork extensions (tnmt-1 fork)
+
+Fork 固有の拡張は次のとおり（upstream を取り込んだ後の追補実装）。`docs/key-bindings.md` が正の情報源。
+
+- **F6-F10 変換**: `karukan-im/core/src/core/engine/fkeys.rs` — F6=ひらがな, F7=全角カタカナ, F8=半角カタカナ, F9=全角英数, F10=半角英数。Ctrl+L（全角英数）/ Ctrl+;（半角英数）も対応。Ctrl+J はひらがなではなく upstream のチャンク区切り（#87）なので注意。F6-F8 は学習キャッシュへ記録される（`record_learning`）、F9/F10 は記録しない。
+- **テンキー直接入力**: `keycode.rs` の `KP_*` keysym と `keypad_char()`。テンキー数字は候補選択を起こさずリテラル入力し、KP_ENTER は Enter と同じ確定。
+- **Escape 2段階キャンセル**: `input.rs` の `cancel_composing` — 1回目の Escape は候補/ライブ変換の表示だけを閉じ、2回目で破棄（Mozc 準拠）。絵文字モードの Escape はキャンセル（Slack 式のリテラル確定は廃止）。
+- **単語末 n の「ん」確定**: `karukan-engine/src/romaji/converter.rs` の継続ガード + `rules.rs` の `n→ん`。`nya`/`nn` を壊さないようバッファ継続判定を持つ。
+- **学習スコアの半減期方式**: `karukan-engine/src/learning.rs` — 7日半減期の指数減衰（`recency = 0.5^(age/7) * 3 + freq`）。
+- **設定の移行**: 旧 `[conversion] space_style` は廃止。`[symbol] space = "half"`（既定は半角、upstream 準拠）。
+
 ## Build and Development Commands
 
 This project uses a Cargo workspace. All commands are run from the repository root.

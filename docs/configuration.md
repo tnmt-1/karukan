@@ -118,3 +118,9 @@ CPU高負荷時（Rustビルド中など）にかな漢字変換が遅くなる�
 - IME切り替え・ウィンドウ切り替え時に自動保存（commit のたびには保存しない）
 - `[learning] enabled = false` で無効化可能
 - 学習履歴をすべて削除するには: `rm ~/.local/share/karukan-im/learning.tsv`
+
+## 旧フォーク版からの移行メモ
+
+- 旧 `[conversion] space_style = "fullwidth"` は廃止され、`[symbol] space` に統合されました（`"full"` が相当）。`space_style` が書かれた config.toml は設定が読み込まれない点に注意してください。
+- 既定のスペースキー動作は旧フォークの全角から upstream 準拠の半角（`space = "half"`）に変わりました。
+- 学習スコアは7日半減期の指数減衰方式になり、1回の誤確定が候補順位に固着しにくくなっています。
