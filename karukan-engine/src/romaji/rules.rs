@@ -1,7 +1,9 @@
+use super::style::SymbolStyle;
 use super::trie::TrieNode;
 
-/// Build the conversion rules trie
-pub fn build_rules() -> TrieNode {
+/// Build the conversion rules trie in `style`: the `,` `.` `/` `[` `]` keys
+/// take their output from it, every other rule is fixed.
+pub fn build_rules(style: SymbolStyle) -> TrieNode {
     let mut trie = TrieNode::new();
 
     // Vowels
@@ -192,11 +194,6 @@ pub fn build_rules() -> TrieNode {
     trie.insert("nyu", "にゅ");
     trie.insert("nye", "にぇ");
     trie.insert("nyo", "にょ");
-    // Single "n" → ん on commit/flush (word-final ん, e.g. さん = "san").
-    // The trie keeps a continuation, so "n" alone stays buffered while
-    // typing (na/ni/…/ny* still win via longer match) and only converts
-    // on flush/commit — matching Mozc/Google IME.
-    trie.insert("n", "ん");
     trie.insert("nn", "ん");
     trie.insert("n'", "ん");
     trie.insert("xn", "ん");
@@ -346,58 +343,17 @@ pub fn build_rules() -> TrieNode {
     // Long vowel mark
     trie.insert("-", "ー");
 
-    // Punctuation and symbols.
-    //
-    // Kana mode is a full-width context: mozc's default config marks every
-    // ASCII punctuation group as `preedit_character_form = FULL_WIDTH`
-    // (`src/config/config_handler.cc`), so a typed symbol shows up full-width
-    // in the preedit. mozc reaches that through a separate character-form
-    // manager layered on top of its romaji table; karukan has no such layer,
-    // so the mappings live here instead.
-    //
-    // Japanese-specific replacements first — these are what mozc's own romaji
-    // table (`data/preedit/romanji-hiragana.tsv`) overrides the width rule
-    // with, plus `/` → `・`, which karukan keeps for the middle dot.
-    trie.insert(",", "、");
-    trie.insert(".", "。");
-    trie.insert("/", "・");
-    trie.insert("~", "〜");
-    trie.insert("[", "「");
-    trie.insert("]", "」");
-
-    // Everything else takes its full-width form straight from mozc's
-    // `data/preedit/halfwidthascii-fullwidthascii.tsv`. Note the entries that
-    // are NOT the naive U+FFxx counterpart: `"` → `”`, `'` → `’`, `\` → `￥`.
-    // The half-width form of each stays one keypress away in the candidate
-    // list via the symbol rewriter's variant chains (`data/symbols.yml`).
-    //
-    // `'` does not shadow the `n'` → `ん` rule: the trie takes the longest
-    // match, so a buffered `n` still consumes the apostrophe.
-    trie.insert("!", "！");
-    trie.insert("\"", "”");
-    trie.insert("#", "＃");
-    trie.insert("$", "＄");
-    trie.insert("%", "％");
-    trie.insert("&", "＆");
-    trie.insert("'", "’");
-    trie.insert("(", "（");
-    trie.insert(")", "）");
-    trie.insert("*", "＊");
-    trie.insert("+", "＋");
-    trie.insert(":", "：");
-    trie.insert(";", "；");
-    trie.insert("<", "＜");
-    trie.insert("=", "＝");
-    trie.insert(">", "＞");
+    // Punctuation and symbols
+    trie.insert(",", style.punctuation.comma());
+    trie.insert(".", style.punctuation.period());
+    trie.insert("/", style.slash.slash());
     trie.insert("?", "？");
-    trie.insert("@", "＠");
-    trie.insert("\\", "￥");
-    trie.insert("^", "＾");
-    trie.insert("_", "＿");
-    trie.insert("`", "｀");
-    trie.insert("{", "｛");
-    trie.insert("|", "｜");
-    trie.insert("}", "｝");
+    trie.insert("!", "！");
+    trie.insert("~", "〜");
+
+    // Brackets
+    trie.insert("[", style.bracket.open());
+    trie.insert("]", style.bracket.close());
 
     // Z-special symbols (Google Japanese Input style)
     trie.insert("z/", "・");
@@ -420,7 +376,7 @@ mod tests {
 
     #[test]
     fn test_basic_vowels() {
-        let trie = build_rules();
+        let trie = build_rules(SymbolStyle::default());
         assert_eq!(trie.search_longest("a").output.unwrap(), "あ");
         assert_eq!(trie.search_longest("i").output.unwrap(), "い");
         assert_eq!(trie.search_longest("u").output.unwrap(), "う");
@@ -430,7 +386,7 @@ mod tests {
 
     #[test]
     fn test_k_row() {
-        let trie = build_rules();
+        let trie = build_rules(SymbolStyle::default());
         assert_eq!(trie.search_longest("ka").output.unwrap(), "か");
         assert_eq!(trie.search_longest("ki").output.unwrap(), "き");
         assert_eq!(trie.search_longest("ku").output.unwrap(), "く");
@@ -440,7 +396,7 @@ mod tests {
 
     #[test]
     fn test_youon() {
-        let trie = build_rules();
+        let trie = build_rules(SymbolStyle::default());
         assert_eq!(trie.search_longest("kya").output.unwrap(), "きゃ");
         assert_eq!(trie.search_longest("sha").output.unwrap(), "しゃ");
         assert_eq!(trie.search_longest("cha").output.unwrap(), "ちゃ");
@@ -456,7 +412,7 @@ mod tests {
 
     #[test]
     fn test_small_characters() {
-        let trie = build_rules();
+        let trie = build_rules(SymbolStyle::default());
         assert_eq!(trie.search_longest("la").output.unwrap(), "ぁ");
         assert_eq!(trie.search_longest("li").output.unwrap(), "ぃ");
         assert_eq!(trie.search_longest("lu").output.unwrap(), "ぅ");
@@ -470,7 +426,7 @@ mod tests {
 
     #[test]
     fn test_n_variants() {
-        let trie = build_rules();
+        let trie = build_rules(SymbolStyle::default());
         assert_eq!(trie.search_longest("nn").output.unwrap(), "ん");
         assert_eq!(trie.search_longest("n'").output.unwrap(), "ん");
         assert_eq!(trie.search_longest("xn").output.unwrap(), "ん");
@@ -478,7 +434,7 @@ mod tests {
 
     #[test]
     fn test_c_row() {
-        let trie = build_rules();
+        let trie = build_rules(SymbolStyle::default());
         assert_eq!(trie.search_longest("ca").output.unwrap(), "か");
         assert_eq!(trie.search_longest("ci").output.unwrap(), "し");
         assert_eq!(trie.search_longest("cu").output.unwrap(), "く");
@@ -491,7 +447,7 @@ mod tests {
 
     #[test]
     fn test_q_row() {
-        let trie = build_rules();
+        let trie = build_rules(SymbolStyle::default());
         assert_eq!(trie.search_longest("qa").output.unwrap(), "くぁ");
         assert_eq!(trie.search_longest("qi").output.unwrap(), "くぃ");
         assert_eq!(trie.search_longest("qu").output.unwrap(), "く");
@@ -501,7 +457,7 @@ mod tests {
 
     #[test]
     fn test_kw_gw_series() {
-        let trie = build_rules();
+        let trie = build_rules(SymbolStyle::default());
         // kw series
         assert_eq!(trie.search_longest("kwa").output.unwrap(), "くぁ");
         assert_eq!(trie.search_longest("kwi").output.unwrap(), "くぃ");
@@ -518,7 +474,7 @@ mod tests {
 
     #[test]
     fn test_sw_zw_series() {
-        let trie = build_rules();
+        let trie = build_rules(SymbolStyle::default());
         // sw series
         assert_eq!(trie.search_longest("swa").output.unwrap(), "すぁ");
         assert_eq!(trie.search_longest("swi").output.unwrap(), "すぃ");
@@ -535,7 +491,7 @@ mod tests {
 
     #[test]
     fn test_th_dh_tw_dw_series() {
-        let trie = build_rules();
+        let trie = build_rules(SymbolStyle::default());
         // th series
         assert_eq!(trie.search_longest("tha").output.unwrap(), "てゃ");
         assert_eq!(trie.search_longest("thi").output.unwrap(), "てぃ");
@@ -562,7 +518,7 @@ mod tests {
 
     #[test]
     fn test_hw_series() {
-        let trie = build_rules();
+        let trie = build_rules(SymbolStyle::default());
         assert_eq!(trie.search_longest("hwa").output.unwrap(), "ふぁ");
         assert_eq!(trie.search_longest("hwi").output.unwrap(), "ふぃ");
         assert_eq!(trie.search_longest("hwe").output.unwrap(), "ふぇ");
@@ -572,7 +528,7 @@ mod tests {
 
     #[test]
     fn test_w_row_modern() {
-        let trie = build_rules();
+        let trie = build_rules(SymbolStyle::default());
         // Modern wi/we should be うぃ/うぇ
         assert_eq!(trie.search_longest("wi").output.unwrap(), "うぃ");
         assert_eq!(trie.search_longest("we").output.unwrap(), "うぇ");
@@ -583,7 +539,7 @@ mod tests {
 
     #[test]
     fn test_small_ka_ke() {
-        let trie = build_rules();
+        let trie = build_rules(SymbolStyle::default());
         assert_eq!(trie.search_longest("xka").output.unwrap(), "ヵ");
         assert_eq!(trie.search_longest("xke").output.unwrap(), "ヶ");
         assert_eq!(trie.search_longest("lka").output.unwrap(), "ヵ");
@@ -592,7 +548,7 @@ mod tests {
 
     #[test]
     fn test_z_special_symbols() {
-        let trie = build_rules();
+        let trie = build_rules(SymbolStyle::default());
         assert_eq!(trie.search_longest("z/").output.unwrap(), "・");
         assert_eq!(trie.search_longest("z.").output.unwrap(), "…");
         assert_eq!(trie.search_longest("z,").output.unwrap(), "‥");
@@ -607,11 +563,9 @@ mod tests {
 
     #[test]
     fn test_brackets_and_punctuation() {
-        let trie = build_rules();
+        let trie = build_rules(SymbolStyle::default());
         assert_eq!(trie.search_longest("[").output.unwrap(), "「");
         assert_eq!(trie.search_longest("]").output.unwrap(), "」");
-        assert_eq!(trie.search_longest("(").output.unwrap(), "（");
-        assert_eq!(trie.search_longest(")").output.unwrap(), "）");
         assert_eq!(trie.search_longest(",").output.unwrap(), "、");
         assert_eq!(trie.search_longest(".").output.unwrap(), "。");
         assert_eq!(trie.search_longest("-").output.unwrap(), "ー");
@@ -619,60 +573,8 @@ mod tests {
     }
 
     #[test]
-    fn test_ascii_symbols_are_full_width() {
-        // Every ASCII punctuation key that has no Japanese-specific
-        // replacement maps to the full-width form from mozc's
-        // `halfwidthascii-fullwidthascii.tsv`, matching mozc's default
-        // `preedit_character_form = FULL_WIDTH` for these groups.
-        let trie = build_rules();
-        let table = [
-            ("!", "！"),
-            ("\"", "”"),
-            ("#", "＃"),
-            ("$", "＄"),
-            ("%", "％"),
-            ("&", "＆"),
-            ("'", "’"),
-            ("(", "（"),
-            (")", "）"),
-            ("*", "＊"),
-            ("+", "＋"),
-            (":", "："),
-            (";", "；"),
-            ("<", "＜"),
-            ("=", "＝"),
-            (">", "＞"),
-            ("?", "？"),
-            ("@", "＠"),
-            ("\\", "￥"),
-            ("^", "＾"),
-            ("_", "＿"),
-            ("`", "｀"),
-            ("{", "｛"),
-            ("|", "｜"),
-            ("}", "｝"),
-        ];
-        for (key, expected) in table {
-            assert_eq!(
-                trie.search_longest(key).output,
-                Some(expected),
-                "`{key}` should convert to `{expected}`"
-            );
-        }
-    }
-
-    #[test]
-    fn test_apostrophe_rule_does_not_shadow_n_apostrophe() {
-        // `'` → `’` must not break `n'` → `ん`: the trie takes the longest
-        // match, so a buffered `n` still consumes the apostrophe.
-        let trie = build_rules();
-        assert_eq!(trie.search_longest("n'").output.unwrap(), "ん");
-        assert_eq!(trie.search_longest("'").output.unwrap(), "’");
-    }
-
-    #[test]
     fn test_tsu_variants() {
-        let trie = build_rules();
+        let trie = build_rules(SymbolStyle::default());
         assert_eq!(trie.search_longest("tsa").output.unwrap(), "つぁ");
         assert_eq!(trie.search_longest("tsi").output.unwrap(), "つぃ");
         assert_eq!(trie.search_longest("tse").output.unwrap(), "つぇ");

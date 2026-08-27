@@ -30,6 +30,15 @@ pub use half_katakana::HalfWidthKatakanaRewriter;
 pub use number::NumberRewriter;
 pub use symbol::{SymbolRewriter, description};
 
+use crate::kana::is_digit;
+
+/// True iff every character is a halfwidth (`0-9`) or fullwidth (`０-９`)
+/// decimal digit, and the string is non-empty. Shared gate for digit-only
+/// rewriting so arbitrary candidates with stray digits aren't expanded.
+pub(crate) fn is_pure_digit(text: &str) -> bool {
+    !text.is_empty() && text.chars().all(is_digit)
+}
+
 /// One result of rewriting: the variant text and an optional description used
 /// as the candidate's annotation (e.g. `三点リーダ` for `…`).
 pub type RewriteOutput = (String, Option<String>);

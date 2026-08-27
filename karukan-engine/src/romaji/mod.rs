@@ -1,6 +1,7 @@
 mod converter;
 mod rules;
+mod style;
 mod trie;
 
-pub use converter::{BackspaceResult, ConversionEvent, RomajiConverter};
-pub use trie::SearchResult;
+pub use converter::{Converted, RomajiConverter};
+pub use style::{BracketStyle, PunctuationStyle, SlashStyle, SymbolStyle};
