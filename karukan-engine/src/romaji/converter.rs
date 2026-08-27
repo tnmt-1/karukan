@@ -222,7 +222,38 @@ impl Scratch<'_> {
                 }
                 // Otherwise, wait for more input
             } else {
-                // Convert and keep remainder in buffer
+                // Convert and keep remainder in buffer.
+                // Fork-ported guard: the single-"n" rule (word-final ん)
+                // fires on any buffer whose longest match is that lone n,
+                // but the remainder may still be completing a longer rule —
+                // "ny" in "nyo", "nn" … — and must stay buffered or
+                // "nya" would commit as んや. Walk the matched node and
+                // the remainder; when both are on a valid trie path, wait.
+                if hiragana == "ん" && search.matched_len == 1 && search.has_continuation {
+                    let mut node_ref = self.trie;
+                    let mut on_valid_path = true;
+                    for ch in self.buffer.chars().take(search.matched_len) {
+                        if let Some(child) = node_ref.children.get(&ch) {
+                            node_ref = child;
+                        } else {
+                            on_valid_path = false;
+                            break;
+                        }
+                    }
+                    if on_valid_path {
+                        for ch in self.buffer.chars().skip(search.matched_len) {
+                            if let Some(child) = node_ref.children.get(&ch) {
+                                node_ref = child;
+                            } else {
+                                on_valid_path = false;
+                                break;
+                            }
+                        }
+                    }
+                    if on_valid_path {
+                        return;
+                    }
+                }
                 self.output.push_str(hiragana);
                 self.buffer.drain(..search.matched_len);
                 self.convert_remainder();
@@ -296,6 +327,33 @@ mod tests {
     }
 
     #[test]
+    fn test_single_n_flush_commits_nn() {
+        // Word-final ん (fork-ported): typing "san" keeps the lone n
+        // pending, and flush/commit converts it — Mozc/Google IME behavior.
+        let c = RomajiConverter::new();
+        assert_eq!(c.convert("san").pending, "n");
+        assert_eq!(c.convert_flush("san"), "さん");
+        assert_eq!(c.convert_flush("kon"), "こん");
+        assert_eq!(c.convert_flush("karukan"), "かるかん");
+    }
+
+    #[test]
+    fn test_single_n_still_buffers_for_vowel() {
+        // The single-n rule must not break na/ni/…/ny*: longer matches win.
+        let c = RomajiConverter::new();
+        assert_eq!(c.convert("na").text, "な");
+        assert_eq!(c.convert("nya").text, "にゃ");
+        assert_eq!(c.convert("nyo").text, "にょ");
+        assert_eq!(c.convert("nn").text, "ん");
+        assert_eq!(c.convert("nn").pending, "");
+        // "nyq" can never complete a longer rule: ん converts, "yq"
+        // falls through as before.
+        let r = c.convert("nyq");
+        assert_eq!(r.text, "んy");
+        assert_eq!(r.pending, "q");
+    }
+
+    #[test]
     fn test_sokuon() {
         assert_eq!(conv("kk"), ("っ".to_string(), "k".to_string()));
         assert_eq!(conv("kka"), ("っか".to_string(), "".to_string()));
@@ -336,7 +394,8 @@ mod tests {
         assert_eq!(c.flush_pending("k"), "k");
         assert_eq!(c.flush_pending("ltu"), "っ");
         assert_eq!(c.convert_flush("k"), "k");
-        assert_eq!(c.convert_flush("kan"), "かn");
+        // Word-final n commits as ん (fork-ported, Mozc/Google IME behavior).
+        assert_eq!(c.convert_flush("kan"), "かん");
     }
 
     #[test]

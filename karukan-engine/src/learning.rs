@@ -287,16 +287,19 @@ impl LearningCache {
 /// Compute a candidate score: recency-weighted with frequency bonus.
 ///
 /// Inspired by mozc's UserHistoryPredictor: recent selections rank higher,
-/// with a logarithmic frequency term to reward repeated use.
+/// with a logarithmic frequency term to reward repeated use. Recency decays
+/// exponentially with a 7-day half-life (fork-ported): the old integer-day
+/// formula scored every same-day entry identically and its heavy 10x weight
+/// let a single accidental commit outrank days of steady use. The gentler
+/// 3x weight keeps a one-off from freezing itself into the candidate order,
+/// which is what makes recording F6/F7/F8 kana-formatting commits safe.
 fn score(entry: &LearningEntry, now: u64) -> f64 {
-    let age_days = if now > entry.last_access {
-        (now - entry.last_access) / 86400
-    } else {
-        0
-    };
-    let recency = 1.0 / (1.0 + age_days as f64);
+    const HALF_LIFE_DAYS: f64 = 7.0;
+    const RECENCY_WEIGHT: f64 = 3.0;
+    let age_days = now.saturating_sub(entry.last_access) as f64 / 86400.0;
+    let recency = 0.5f64.powf(age_days / HALF_LIFE_DAYS);
     let freq = (entry.frequency as f64).ln_1p();
-    recency * 10.0 + freq
+    RECENCY_WEIGHT * recency + freq
 }
 
 /// Current time as Unix timestamp in seconds.
@@ -504,6 +507,43 @@ mod tests {
         assert_eq!(cache.entry_count(), 0);
         assert!(cache.lookup("きょう").is_empty());
         assert!(cache.prefix_lookup("き").is_empty());
+    }
+
+    #[test]
+    fn test_yesterday_frequency_beats_today_single_miscommit() {
+        // One accidental commit today (に→2) must not outrank a surface
+        // selected three times yesterday (に→に) — the fork's score-softening
+        // invariant.
+        let now = now_unix();
+        let file = NamedTempFile::new().unwrap();
+        std::fs::write(
+            file.path(),
+            format!("に\t2\t1\t{}\nに\tに\t3\t{}\n", now, now - 86400),
+        )
+        .unwrap();
+
+        let cache = LearningCache::load(file.path(), config_with(100)).unwrap();
+        let results = cache.lookup("に");
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].0, "に");
+    }
+
+    #[test]
+    fn test_score_is_continuous_within_a_day() {
+        // The old integer-day formula scored every same-day entry identically;
+        // recency must decay continuously (fork-ported test).
+        let now = now_unix();
+        let one_hour_ago = LearningEntry {
+            surface: "A".to_string(),
+            frequency: 1,
+            last_access: now - 3600,
+        };
+        let almost_a_day_ago = LearningEntry {
+            surface: "B".to_string(),
+            frequency: 1,
+            last_access: now - 23 * 3600,
+        };
+        assert!(score(&one_hour_ago, now) > score(&almost_a_day_ago, now));
     }
 
     #[test]

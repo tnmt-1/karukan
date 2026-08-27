@@ -119,6 +119,10 @@ fn test_escape_cancels_composition() {
     let mut server = test_server();
     press(&mut server, XKB_KEY_K);
     press(&mut server, XKB_KEY_A);
+    // Two-stage cancel (fork-ported): first Escape closes the suggestion
+    // window, second discards the composition.
+    let resp = press(&mut server, XKB_KEY_ESCAPE);
+    assert_eq!(resp["result"]["consumed"], true);
     let resp = press(&mut server, XKB_KEY_ESCAPE);
     assert_eq!(resp["result"]["consumed"], true);
     let preedits = actions_of(&resp, "update_preedit");

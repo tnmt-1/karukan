@@ -147,9 +147,11 @@ fn the_shipped_default_makes_kana_input_full_width() {
     // Digits are the exception: nothing here remembers a width the user
     // picked, so a full-width default would be one they cannot take back.
     engine.process_key(&press_key(Keysym::ESCAPE));
+    engine.process_key(&press_key(Keysym::ESCAPE));
     let result = type_keys(&mut engine, "123");
     assert_eq!(shown_preedit(&result).as_deref(), Some("123"));
 
+    engine.process_key(&press_key(Keysym::ESCAPE));
     engine.process_key(&press_key(Keysym::ESCAPE));
     engine.process_key(&press_shift('A'));
     let result = type_keys(&mut engine, "bc, d.");

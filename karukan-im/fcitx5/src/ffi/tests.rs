@@ -202,7 +202,9 @@ fn test_escape_cancel() {
     e.press(XKB_KEY_A);
     e.press(XKB_KEY_I);
 
-    // Escape to cancel
+    // Escape to cancel (two-stage: first closes the suggestion window,
+    // second discards the composition)
+    e.press(XKB_KEY_ESCAPE);
     e.press(XKB_KEY_ESCAPE);
     assert_eq!(e.preedit_len(), 0);
     assert!(!e.has_commit());

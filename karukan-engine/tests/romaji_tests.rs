@@ -235,10 +235,11 @@ fn test_real_words() {
     ]);
 
     // "karukan" (single n at end): trailing 'n' stays pending (ambiguous),
-    // and flushing outputs it as-is
+    // but flushing commits it as ん (fork-ported: Mozc/Google IME commit a
+    // word-final ん even when the n was typed once, "san" → さん)
     assert_eq!(text("karukan"), "かるか");
     assert_eq!(pending("karukan"), "n");
-    assert_eq!(flushed("karukan"), "かるかn");
+    assert_eq!(flushed("karukan"), "かるかん");
 
     // "karukann" (nn at end) -> "かるかん" immediately (nn converts right away)
     assert_eq!(text("karukann"), "かるかん");

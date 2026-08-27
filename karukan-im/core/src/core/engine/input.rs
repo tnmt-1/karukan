@@ -146,6 +146,20 @@ impl InputMethodEngine {
         }
 
         // Only handle printable characters without modifiers (except shift)
+        // Keypad keys are direct input: insert the literal character and
+        // start a composition (keypad '/' must stay '/', keypad digits
+        // never trigger candidate selection — issue #51).
+        if let Some(ch) = key.keysym.keypad_char()
+            && !key.modifiers.control_key
+            && !key.modifiers.alt_key
+        {
+            self.clear_composition();
+            self.input_buf.push_direct(ch);
+            let preedit = self.set_composing_state();
+            return EngineResult::consumed()
+                .with_action(EngineAction::UpdatePreedit(preedit))
+                .with_action(EngineAction::UpdateAuxText(self.format_aux_composing()));
+        }
         if let Some(ch) = key.to_char()
             && !key.modifiers.control_key
             && !key.modifiers.alt_key
@@ -262,7 +276,7 @@ impl InputMethodEngine {
         }
 
         match key.keysym {
-            Keysym::RETURN => self.commit_composing(),
+            Keysym::RETURN | Keysym::KP_ENTER => self.commit_composing(),
             Keysym::ESCAPE => self.cancel_composing(),
             Keysym::BACKSPACE => self.backspace_composing(),
             Keysym::DELETE => self.delete_composing(),
@@ -282,6 +296,16 @@ impl InputMethodEngine {
             Keysym::HOME => self.move_caret_home(),
             Keysym::END => self.move_caret_end(),
             _ => {
+                // Keypad keys are direct input: insert the literal character
+                // at the cursor, bypassing romaji rules (keypad '/' must stay
+                // '/', keypad digits never trigger conversion — issue #51).
+                if let Some(ch) = key.keysym.keypad_char()
+                    && !key.modifiers.control_key
+                    && !key.modifiers.alt_key
+                {
+                    self.edit_with_chunk_breaks(|e| e.input_buf.push_direct(ch));
+                    return self.refresh_input_state();
+                }
                 if let Some(ch) = key.to_char()
                     && !key.modifiers.control_key
                     && !key.modifiers.alt_key
@@ -419,6 +443,10 @@ impl InputMethodEngine {
         // If live conversion is active, first Escape returns to hiragana display
         if !self.live_text().is_empty() {
             self.live.shown = false;
+            // The suggestion window is part of the live display: close it
+            // too (fork behavior), so the very next Escape can discard the
+            // composition instead of only hiding the window again.
+            self.shown_suggestions = CandidateList::default();
             let preedit = self.set_composing_state();
             return EngineResult::consumed()
                 .with_action(EngineAction::UpdatePreedit(preedit))
@@ -426,30 +454,28 @@ impl InputMethodEngine {
                 .with_action(EngineAction::UpdateAuxText(self.format_aux_composing()));
         }
 
-        // Emoji mode: Escape closes the picker but commits the literal
-        // buffer (the typed `:smile` or `:xyz`) — Slack-style escape.
-        // The user is saying "abandon the emoji lookup but keep what I
-        // typed as plain text". Without this, Escape would silently
-        // discard the typed characters which is surprising when the
-        // user just wanted to dismiss the candidate list.
-        let emoji_literal = if self.mode.current() == InputMode::Emoji {
-            Some(self.input_buf.reading()).filter(|r| !r.is_empty())
-        } else {
-            None
-        };
+        // Two-stage cancel (fork-ported): if the suggestion window is open,
+        // the first Escape only closes it (Mozc-style); a second Escape
+        // discards the input. Prevents wiping a long composition just to
+        // dismiss the candidate list.
+        if !self.shown_suggestions.is_empty() {
+            self.shown_suggestions = CandidateList::default();
+            return EngineResult::consumed()
+                .with_action(EngineAction::HideCandidates)
+                .with_action(EngineAction::HideAuxText);
+        }
+
+        // Emoji mode: Escape is a plain cancel like every other mode — the
+        // composition is discarded and the pre-emoji mode restored.
+        // (Fork-ported: it used to commit the literal `:smile` Slack-style,
+        // but that contradicts the standard IME contract that Escape
+        // abandons uncommitted input.)
 
         self.end_composition();
 
-        if let Some(literal) = emoji_literal {
-            EngineResult::consumed()
-                .with_action(EngineAction::Commit(literal))
-                .with_action(EngineAction::HideCandidates)
-                .with_action(EngineAction::HideAuxText)
-        } else {
-            EngineResult::consumed()
-                .with_action(EngineAction::UpdatePreedit(Preedit::new()))
-                .with_action(EngineAction::HideCandidates)
-                .with_action(EngineAction::HideAuxText)
-        }
+        EngineResult::consumed()
+            .with_action(EngineAction::UpdatePreedit(Preedit::new()))
+            .with_action(EngineAction::HideCandidates)
+            .with_action(EngineAction::HideAuxText)
     }
 }

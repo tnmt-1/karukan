@@ -519,7 +519,7 @@ impl InputMethodEngine {
             return EngineResult::not_consumed();
         }
         match key.keysym {
-            Keysym::RETURN => self.commit_conversion(),
+            Keysym::RETURN | Keysym::KP_ENTER => self.commit_conversion(),
             Keysym::ESCAPE => self.cancel_conversion(),
             // Tab stays next-candidate and Shift+Tab (ISO_Left_Tab on
             // X11) prev-candidate for mozc-compatible muscle memory.
@@ -609,8 +609,12 @@ impl InputMethodEngine {
 
                 // A printable character refines instead of committing:
                 // the reading grows and the suggestion rewrites in place,
-                // keeping any active source filter.
-                if key.to_char().is_some() && !key.modifiers.control_key {
+                // keeping any active source filter. Keypad keys count as
+                // direct input the same way (issue #51): they refine like
+                // the main-row digits instead of selecting candidates.
+                let keypad_ch = key.keysym.keypad_char();
+                let is_refining = key.to_char().is_some() || keypad_ch.is_some();
+                if is_refining && !key.modifiers.control_key && !key.modifiers.alt_key {
                     return self.refine_through_composing(key, shift_active);
                 }
 

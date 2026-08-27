@@ -77,15 +77,11 @@ fn emoji_mode_shows_candidates_via_rewriter() {
 }
 
 #[test]
-fn escape_commits_literal_and_exits_emoji_mode() {
-    // Slack-style escape: pressing ESC in emoji mode dismisses the
-    // picker AND commits whatever the user typed as plain text. Two
-    // reasons:
-    //   * The typed `:smile` shouldn't silently vanish — that would
-    //     be surprising; users expect what they typed to land somewhere.
-    //   * It gives a deliberate way to commit `:smile` literally even
-    //     when an emoji match exists, which Enter alone can't do
-    //     (Enter on a match commits the emoji).
+fn escape_cancels_emoji_and_exits_emoji_mode() {
+    // Enter emoji mode and type a query; Escape discards the composition
+    // and restores the prior mode (fork-ported: the previous Slack-style
+    // commit-literal escape contradicted the standard IME contract that
+    // Escape abandons uncommitted input).
     let mut engine = InputMethodEngine::new();
     engine.process_key(&press_colon());
     for ch in ['s', 'm', 'i', 'l', 'e'] {
@@ -93,8 +89,11 @@ fn escape_commits_literal_and_exits_emoji_mode() {
     }
     assert_eq!(engine.mode.current(), InputMode::Emoji);
 
+    // Two-stage cancel: first Escape closes the suggestion window, second
+    // discards the composition.
+    engine.process_key(&press_key(Keysym::ESCAPE));
     let result = engine.process_key(&press_key(Keysym::ESCAPE));
-    assert_eq!(commit_text(&result).as_deref(), Some(":smile"));
+    assert_eq!(commit_text(&result), None);
     assert_eq!(engine.mode.current(), InputMode::Hiragana);
     assert!(matches!(engine.state(), InputState::Empty));
 }
@@ -332,6 +331,9 @@ fn escape_emoji_restores_pre_emoji_katakana_mode() {
     for ch in ['s', 'm', 'i', 'l', 'e'] {
         engine.process_key(&press(ch));
     }
+    // Two-stage cancel; the second Escape discards and ModeState restores
+    // the mode the user was in before `:`.
+    engine.process_key(&press_key(Keysym::ESCAPE));
     engine.process_key(&press_key(Keysym::ESCAPE));
     assert_eq!(engine.mode.current(), InputMode::Katakana);
 }

@@ -159,6 +159,10 @@ fn test_engine_cancel() {
     engine.process_key(&press('a'));
     engine.process_key(&press('i'));
 
+    // Two-stage cancel (fork-ported): first Escape closes the suggestion
+    // window, second discards the composition.
+    engine.process_key(&press_key(Keysym::ESCAPE));
+    assert!(matches!(engine.state(), InputState::Composing { .. }));
     engine.process_key(&press_key(Keysym::ESCAPE));
     assert!(matches!(engine.state(), InputState::Empty));
 }

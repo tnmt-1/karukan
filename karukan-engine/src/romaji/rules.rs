@@ -194,6 +194,11 @@ pub fn build_rules(style: SymbolStyle) -> TrieNode {
     trie.insert("nyu", "にゅ");
     trie.insert("nye", "にぇ");
     trie.insert("nyo", "にょ");
+    // Single "n" → ん on commit/flush (word-final ん, e.g. さん = "san";
+    // fork-ported, Mozc/Google IME behavior). The trie keeps a
+    // continuation, so "n" alone stays buffered while typing (na/ni/…/ny*
+    // still win via longer match) and only converts on flush/commit.
+    trie.insert("n", "ん");
     trie.insert("nn", "ん");
     trie.insert("n'", "ん");
     trie.insert("xn", "ん");

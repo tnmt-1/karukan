@@ -49,6 +49,66 @@ impl Keysym {
     // Space
     pub const SPACE: Keysym = Keysym(0x0020);
 
+    // Function keys (fork-ported: F6-F10 conversion keys)
+    pub const F1: Keysym = Keysym(0xffbe);
+    pub const F2: Keysym = Keysym(0xffbf);
+    pub const F3: Keysym = Keysym(0xffc0);
+    pub const F4: Keysym = Keysym(0xffc1);
+    pub const F5: Keysym = Keysym(0xffc2);
+    pub const F6: Keysym = Keysym(0xffc3);
+    pub const F7: Keysym = Keysym(0xffc4);
+    pub const F8: Keysym = Keysym(0xffc5);
+    pub const F9: Keysym = Keysym(0xffc6);
+    pub const F10: Keysym = Keysym(0xffc7);
+    pub const F11: Keysym = Keysym(0xffc8);
+    pub const F12: Keysym = Keysym(0xffc9);
+
+    // JIS keyboard keys beyond the 変換 key (fork-ported additions)
+    /// 無変換 key (XK_Muhenkan)
+    pub const MUHENKAN: Keysym = Keysym(0xff22);
+    /// 英数 key (XK_Eisu_toggle)
+    pub const EISU_TOGGLE: Keysym = Keysym(0xff30);
+    /// かな/カナ key (XK_Hiragana_Katakana)
+    pub const HIRAGANA_KATAKANA: Keysym = Keysym(0xff25);
+
+    // Numeric keypad (fork-ported: keypad is treated as direct input so it
+    // can never trigger candidate selection — issue #51)
+    pub const KP_ENTER: Keysym = Keysym(0xff8d);
+    pub const KP_MULTIPLY: Keysym = Keysym(0xffaa);
+    pub const KP_ADD: Keysym = Keysym(0xffab);
+    pub const KP_SUBTRACT: Keysym = Keysym(0xffad);
+    pub const KP_DECIMAL: Keysym = Keysym(0xffae);
+    pub const KP_DIVIDE: Keysym = Keysym(0xffaf);
+    pub const KP_0: Keysym = Keysym(0xffb0);
+    pub const KP_1: Keysym = Keysym(0xffb1);
+    pub const KP_2: Keysym = Keysym(0xffb2);
+    pub const KP_3: Keysym = Keysym(0xffb3);
+    pub const KP_4: Keysym = Keysym(0xffb4);
+    pub const KP_5: Keysym = Keysym(0xffb5);
+    pub const KP_6: Keysym = Keysym(0xffb6);
+    pub const KP_7: Keysym = Keysym(0xffb7);
+    pub const KP_8: Keysym = Keysym(0xffb8);
+    pub const KP_9: Keysym = Keysym(0xffb9);
+    pub const KP_EQUAL: Keysym = Keysym(0xffbd);
+
+    /// The literal character a keypad key maps to: digits `0`-`9` and the
+    /// operators `. + - * / =`. Keypad keys are direct input: they never
+    /// trigger candidate selection and bypass the romaji table (keypad `/`
+    /// must stay `/`, not become ・).
+    pub fn keypad_char(&self) -> Option<char> {
+        let code = match self.0 {
+            0xffb0..=0xffb9 => b'0' + (self.0 - 0xffb0) as u8,
+            0xffae => b'.',
+            0xffab => b'+',
+            0xffad => b'-',
+            0xffaa => b'*',
+            0xffaf => b'/',
+            0xffbd => b'=',
+            _ => return None,
+        };
+        Some(code as char)
+    }
+
     // Numbers
     pub const KEY_0: Keysym = Keysym(0x0030);
     pub const KEY_1: Keysym = Keysym(0x0031);
