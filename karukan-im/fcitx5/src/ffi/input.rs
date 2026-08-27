@@ -39,30 +39,6 @@ pub extern "C" fn karukan_engine_reset(engine: *mut KarukanEngine) {
     engine.aux = super::AuxCache::default();
 }
 
-/// Move to the next candidate page (like PgDn).
-/// Returns 1 if the action was consumed (a candidate list is active), 0 otherwise.
-#[unsafe(no_mangle)]
-pub extern "C" fn karukan_engine_next_candidate_page(engine: *mut KarukanEngine) -> c_int {
-    let engine = ffi_mut!(engine, 0);
-    engine.clear_flags();
-    let result = engine.engine.select_next_candidate_page();
-    engine.apply_actions(result.actions);
-    engine.sync_timing();
-    if result.consumed { 1 } else { 0 }
-}
-
-/// Move to the previous candidate page (like PgUp).
-/// Returns 1 if the action was consumed (a candidate list is active), 0 otherwise.
-#[unsafe(no_mangle)]
-pub extern "C" fn karukan_engine_prev_candidate_page(engine: *mut KarukanEngine) -> c_int {
-    let engine = ffi_mut!(engine, 0);
-    engine.clear_flags();
-    let result = engine.engine.select_prev_candidate_page();
-    engine.apply_actions(result.actions);
-    engine.sync_timing();
-    if result.consumed { 1 } else { 0 }
-}
-
 /// Set the surrounding text context from the editor
 /// This provides the actual text around the cursor for better conversion accuracy
 #[unsafe(no_mangle)]

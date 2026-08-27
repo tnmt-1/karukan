@@ -82,15 +82,6 @@ void karukan_engine_set_surrounding_text(
 /* --- Preedit (composition) text --- */
 
 /*
- * Preedit attribute styles (match AttributeType in karukan-im).
- * Used with karukan_engine_get_preedit_attr_style().
- */
-#define KARUKAN_PREEDIT_ATTR_UNDERLINE        0
-#define KARUKAN_PREEDIT_ATTR_UNDERLINE_DOUBLE 1
-#define KARUKAN_PREEDIT_ATTR_HIGHLIGHT        2
-#define KARUKAN_PREEDIT_ATTR_REVERSE          3
-
-/*
  * Check if there's a preedit update pending.
  */
 int karukan_engine_has_preedit(const KarukanEngine* engine);
@@ -112,31 +103,6 @@ uint32_t karukan_engine_get_preedit_len(const KarukanEngine* engine);
  * This indicates where the cursor should be displayed within the preedit text.
  */
 uint32_t karukan_engine_get_preedit_caret(const KarukanEngine* engine);
-
-/*
- * Get the number of preedit attributes (styled segments).
- * When non-zero, iterate with get_preedit_attr_{start,end,style} to build
- * a multi-segment fcitx5 Text (Underline vs HighLight+Underline).
- */
-uint32_t karukan_engine_get_preedit_attr_count(const KarukanEngine* engine);
-
-/*
- * Get the start byte offset of the preedit attribute at index.
- * Returns 0 if index is out of range.
- */
-uint32_t karukan_engine_get_preedit_attr_start(const KarukanEngine* engine, uint32_t index);
-
-/*
- * Get the end byte offset (exclusive) of the preedit attribute at index.
- * Returns 0 if index is out of range.
- */
-uint32_t karukan_engine_get_preedit_attr_end(const KarukanEngine* engine, uint32_t index);
-
-/*
- * Get the style (KARUKAN_PREEDIT_ATTR_*) of the preedit attribute at index.
- * Returns KARUKAN_PREEDIT_ATTR_UNDERLINE if index is out of range.
- */
-uint32_t karukan_engine_get_preedit_attr_style(const KarukanEngine* engine, uint32_t index);
 
 /* --- Commit text --- */
 
@@ -196,31 +162,6 @@ const char* karukan_engine_get_candidate_description(const KarukanEngine* engine
  * Get the current candidate cursor position (selected index).
  */
 uint32_t karukan_engine_get_candidate_cursor(const KarukanEngine* engine);
-
-/*
- * Get the current candidate page number (0-indexed).
- * Drives fcitx5's candidate-window prev/next page buttons.
- */
-uint32_t karukan_engine_get_candidate_page(const KarukanEngine* engine);
-
-/*
- * Get the total number of candidate pages.
- */
-uint32_t karukan_engine_get_candidate_total_pages(const KarukanEngine* engine);
-
-/*
- * Move to the next candidate page (like PgDn).
- * Returns 1 if the action was consumed (a candidate list is active), 0 otherwise.
- * After calling this function, check the has_* functions for UI updates.
- */
-int karukan_engine_next_candidate_page(KarukanEngine* engine);
-
-/*
- * Move to the previous candidate page (like PgUp).
- * Returns 1 if the action was consumed (a candidate list is active), 0 otherwise.
- * After calling this function, check the has_* functions for UI updates.
- */
-int karukan_engine_prev_candidate_page(KarukanEngine* engine);
 
 /* --- Auxiliary text (reading hint) --- */
 

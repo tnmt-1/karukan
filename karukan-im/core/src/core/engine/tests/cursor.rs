@@ -207,64 +207,6 @@ fn test_cursor_backspace_in_middle() {
 }
 
 #[test]
-fn test_backspace_resumes_broken_romaji_syllable() {
-    let mut engine = InputMethodEngine::new();
-
-    // Aiming for "りゃ" but mistyping the last key: "rys" leaves the romaji
-    // path, so "ry" lands in the preedit as literal ASCII.
-    for ch in "rys".chars() {
-        engine.process_key(&press(ch));
-    }
-    assert_eq!(engine.preedit().unwrap().text(), "rys");
-
-    // Erasing the stray "s" hands "ry" back to the converter, so the
-    // syllable can be finished instead of stranding the romaji.
-    engine.process_key(&press_key(Keysym::BACKSPACE));
-    assert_eq!(engine.preedit().unwrap().text(), "ry");
-
-    engine.process_key(&press('a'));
-    assert_eq!(engine.preedit().unwrap().text(), "りゃ");
-    assert_eq!(engine.preedit().unwrap().caret(), 2);
-}
-
-#[test]
-fn test_backspace_resumes_broken_romaji_after_kana() {
-    let mut engine = InputMethodEngine::new();
-
-    // Same mistake mid-word: only the trailing romaji is handed back,
-    // the kana already committed to the preedit stays put.
-    for ch in "karys".chars() {
-        engine.process_key(&press(ch));
-    }
-    assert_eq!(engine.preedit().unwrap().text(), "かrys");
-
-    engine.process_key(&press_key(Keysym::BACKSPACE));
-    assert_eq!(engine.preedit().unwrap().text(), "かry");
-
-    engine.process_key(&press('a'));
-    assert_eq!(engine.preedit().unwrap().text(), "かりゃ");
-}
-
-#[test]
-fn test_backspace_erases_restored_romaji_to_empty() {
-    let mut engine = InputMethodEngine::new();
-
-    // Romaji handed back to the converter still has to erase away cleanly:
-    // the composition ends only once the restored buffer is gone too.
-    for ch in "rys".chars() {
-        engine.process_key(&press(ch));
-    }
-    engine.process_key(&press_key(Keysym::BACKSPACE));
-    assert_eq!(engine.preedit().unwrap().text(), "ry");
-
-    engine.process_key(&press_key(Keysym::BACKSPACE));
-    assert_eq!(engine.preedit().unwrap().text(), "r");
-
-    engine.process_key(&press_key(Keysym::BACKSPACE));
-    assert!(matches!(engine.state(), InputState::Empty));
-}
-
-#[test]
 fn test_cursor_delete_key() {
     let mut engine = InputMethodEngine::new();
 
@@ -366,8 +308,7 @@ fn test_cursor_waseda_scenario() {
     assert_eq!(engine.preedit().unwrap().text(), "わせだだいがく");
 
     // Now let's test the fix scenario: type "waseyadaigaku" (wrong)
-    engine.process_key(&press_key(Keysym::ESCAPE)); // Close candidate window
-    engine.process_key(&press_key(Keysym::ESCAPE)); // Cancel input
+    engine.process_key(&press_key(Keysym::ESCAPE)); // Cancel
     for ch in "waseyadaigaku".chars() {
         engine.process_key(&press(ch));
     }

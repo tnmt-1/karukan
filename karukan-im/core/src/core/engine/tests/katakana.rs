@@ -61,7 +61,7 @@ fn test_ctrl_k_converts_to_katakana() {
 fn test_ctrl_k_with_empty_input() {
     let mut engine = InputMethodEngine::new();
 
-    // No input, Ctrl+k still switches to katakana mode (state-independent)
+    // No input, Ctrl+k should do nothing harmful
     let ctrl_k = KeyEvent {
         keysym: Keysym::KEY_K,
         modifiers: KeyModifiers {
@@ -74,9 +74,7 @@ fn test_ctrl_k_with_empty_input() {
     };
     let result = engine.process_key(&ctrl_k);
 
-    assert!(result.consumed);
-    assert!(engine.input_mode == InputMode::Katakana);
-    // Should not crash, state should remain empty (nothing to compose)
+    // Should not crash, state should remain empty
     assert!(matches!(engine.state(), InputState::Empty));
     // No commit action with empty text
     let has_commit = result
@@ -213,53 +211,4 @@ fn test_ctrl_k_is_one_way_to_katakana() {
     // New input in hiragana mode
     engine.process_key(&press('u'));
     assert_eq!(engine.preedit().unwrap().text(), "アイう");
-}
-
-#[test]
-fn test_focus_loss_commit_in_katakana_mode_keeps_katakana() {
-    // Focus-loss path (engine.commit()) must commit katakana in katakana
-    // mode, matching the Enter path. Regression: commit() used to return
-    // the raw hiragana reading.
-    let mut engine = InputMethodEngine::new();
-    engine.process_key(&press('a'));
-    engine.process_key(&press('i'));
-
-    let ctrl_k = KeyEvent {
-        keysym: Keysym::KEY_K,
-        modifiers: KeyModifiers {
-            control_key: true,
-            shift_key: false,
-            alt_key: false,
-            super_key: false,
-        },
-        is_press: true,
-    };
-    engine.process_key(&ctrl_k);
-    assert_eq!(engine.preedit().unwrap().text(), "アイ");
-
-    assert_eq!(engine.commit(), "アイ");
-    assert!(matches!(engine.state(), InputState::Empty));
-}
-
-#[test]
-fn test_space_in_katakana_mode_is_fullwidth() {
-    // Space from Empty in Katakana mode commits 　 (full-width), matching
-    // Hiragana mode — regression: it passed through as a half-width space.
-    let mut engine = InputMethodEngine::new();
-    engine.input_mode = InputMode::Katakana;
-
-    let result = engine.process_key(&press_key(Keysym::SPACE));
-    assert!(result.consumed);
-    let commit_text = result
-        .actions
-        .iter()
-        .find_map(|a| {
-            if let EngineAction::Commit(t) = a {
-                Some(t.clone())
-            } else {
-                None
-            }
-        })
-        .unwrap();
-    assert_eq!(commit_text, "\u{3000}");
 }
