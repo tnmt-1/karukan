@@ -459,3 +459,42 @@ fn space_key_keeps_learning_in_composing() {
         texts,
     );
 }
+
+fn engine_with_particle_variants() -> InputMethodEngine {
+    let mut engine = engine_with_learned("やまださん", "山田さん");
+    let cache = engine.learning.as_mut().unwrap();
+    cache.record("やまださんが", "山田さんが");
+    cache.record("やまださんに", "山田さんに");
+    engine
+}
+
+#[test]
+fn suggestion_collapses_particle_variants_of_a_learned_word() {
+    let engine = engine_with_particle_variants();
+
+    let texts: Vec<String> = engine
+        .lookup_learning_candidates("やまだ")
+        .into_iter()
+        .map(|c| c.text)
+        .collect();
+
+    assert_eq!(
+        texts,
+        vec!["山田さん".to_string()],
+        "only the base word should remain"
+    );
+}
+
+#[test]
+fn learning_history_keeps_particle_variants() {
+    let engine = engine_with_particle_variants();
+
+    let mut texts: Vec<String> = engine
+        .lookup_learning_history("やまだ", "")
+        .into_iter()
+        .map(|c| c.text)
+        .collect();
+    texts.sort();
+
+    assert_eq!(texts, vec!["山田さん", "山田さんが", "山田さんに"]);
+}

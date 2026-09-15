@@ -403,18 +403,28 @@ impl InputMethodEngine {
     /// Look up learning cache candidates for a reading (exact + prefix match, max 3).
     ///
     /// Returns candidates from the learning cache suitable for auto-suggest display.
+    /// Predictive hits that only extend another hit's surface (「山田さんが」
+    /// next to 「山田さん」) are collapsed — whole commits are recorded with
+    /// their particles, so without this the three slots fill with one word.
     pub(super) fn lookup_learning_candidates(&self, reading: &str) -> Vec<Candidate> {
-        self.lookup_learning(reading, "", MAX_LEARNING_CANDIDATES)
+        self.lookup_learning(reading, "", MAX_LEARNING_CANDIDATES, true)
     }
 
     /// Full learning history for `reading` (exact + prefix, uncapped),
     /// narrowed by the unresolved romaji tail like the dictionary lookup —
     /// an exact hit on the base must not swallow the typed tail.
+    /// Nothing is collapsed: this view is where an entry gets deleted.
     pub(super) fn lookup_learning_history(&self, reading: &str, pending: &str) -> Vec<Candidate> {
-        self.lookup_learning(reading, pending, usize::MAX)
+        self.lookup_learning(reading, pending, usize::MAX, false)
     }
 
-    fn lookup_learning(&self, reading: &str, pending: &str, max: usize) -> Vec<Candidate> {
+    fn lookup_learning(
+        &self,
+        reading: &str,
+        pending: &str,
+        max: usize,
+        collapse: bool,
+    ) -> Vec<Candidate> {
         let Some(cache) = &self.learning else {
             return vec![];
         };
@@ -422,49 +432,63 @@ impl InputMethodEngine {
         if matches!(constraint, TailConstraint::Dead) {
             return vec![];
         }
-        let mut candidates: Vec<Candidate> = Vec::new();
-        let mut seen = HashSet::new();
 
         // Exact match — only when no romaji tail is pending (an exact hit
         // on the base would ignore the typed tail)
-        if pending.is_empty() {
-            for (surface, _score) in cache.lookup(reading) {
-                if candidates.len() >= max {
-                    break;
-                }
-                if seen.insert(surface.clone()) {
-                    candidates.push(Candidate {
-                        text: surface,
-                        reading: Some(reading.to_string()),
-                        source: Some(CandidateSource::Learning),
-                        description: None,
-                    });
-                }
-            }
-        }
+        let exact: Vec<String> = if pending.is_empty() {
+            cache
+                .lookup(reading)
+                .into_iter()
+                .map(|(surface, _)| surface)
+                .collect()
+        } else {
+            vec![]
+        };
 
         // Prefix match (predictive), narrowed to the kana the tail can
         // still become — mirrors the dictionary's expanded search
-        for (full_reading, surface, _score) in cache.prefix_lookup(reading) {
-            if candidates.len() >= max {
-                break;
-            }
-            if full_reading == reading {
-                continue;
-            }
-            if let TailConstraint::Narrow(expansions) = &constraint {
-                let rest = full_reading.strip_prefix(reading).unwrap_or(&full_reading);
-                if !expansions.iter().any(|e| rest.starts_with(e.as_str())) {
-                    continue;
+        let predicted: Vec<(String, String)> = cache
+            .prefix_lookup(reading)
+            .into_iter()
+            .filter(|(full_reading, _, _)| full_reading != reading)
+            .filter(|(full_reading, _, _)| match &constraint {
+                TailConstraint::Narrow(expansions) => {
+                    let rest = full_reading.strip_prefix(reading).unwrap_or(full_reading);
+                    expansions.iter().any(|e| rest.starts_with(e.as_str()))
                 }
-            }
-            if seen.insert(surface.clone()) {
+                _ => true,
+            })
+            .map(|(full_reading, surface, _)| (full_reading, surface))
+            .collect();
+
+        // A predictive hit whose surface merely extends another hit's is
+        // the same word with a particle attached: drop it
+        let extends_another = |surface: &str| {
+            collapse
+                && exact
+                    .iter()
+                    .chain(predicted.iter().map(|(_, s)| s))
+                    .any(|s| s != surface && surface.starts_with(s.as_str()))
+        };
+
+        let mut candidates: Vec<Candidate> = Vec::new();
+        let mut seen = HashSet::new();
+        let mut push = |text: String, reading: String| {
+            if candidates.len() < max && seen.insert(text.clone()) {
                 candidates.push(Candidate {
-                    text: surface,
-                    reading: Some(full_reading),
+                    text,
+                    reading: Some(reading),
                     source: Some(CandidateSource::Learning),
                     description: None,
                 });
+            }
+        };
+        for surface in &exact {
+            push(surface.clone(), reading.to_string());
+        }
+        for (full_reading, surface) in &predicted {
+            if !extends_another(surface) {
+                push(surface.clone(), full_reading.clone());
             }
         }
 
