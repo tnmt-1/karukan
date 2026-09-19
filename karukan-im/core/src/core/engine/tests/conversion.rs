@@ -97,22 +97,40 @@ fn committed(result: &EngineResult) -> Option<String> {
 }
 
 #[test]
-fn test_bare_digit_during_conversion_refines_instead_of_selecting() {
-    // Digits are plain text input everywhere: during conversion they extend
-    // the reading like any printable char, never select a candidate.
+fn test_bare_digit_during_conversion_selects_candidate() {
+    // Mozc-style: with the candidate window open, 1-9 select and commit.
+    // Ctrl+digit often never reaches the IME (terminal / OS shortcuts).
     let mut engine = InputMethodEngine::new();
     engine.dicts.user = Some(dict_from_json(
-        r#"[{"reading":"あい","candidates":[{"surface":"藍","score":1.0}]}]"#,
+        r#"[{"reading":"あい","candidates":[
+            {"surface":"藍","score":2.0},
+            {"surface":"愛","score":1.0}
+        ]}]"#,
     ));
 
     engine.process_key(&press('a'));
     engine.process_key(&press('i'));
     engine.process_key(&press_key(Keysym::SPACE));
-    assert!(matches!(engine.state(), InputState::Conversion { .. }));
+    let second = engine.candidates().unwrap().candidates()[1].text.clone();
 
     let result = engine.process_key(&press('2'));
-    assert!(committed(&result).is_none(), "a digit must not commit");
-    assert_eq!(engine.input_buf.reading(), "あい2");
+    assert_eq!(committed(&result).as_deref(), Some(second.as_str()));
+    assert!(matches!(engine.state(), InputState::Empty));
+}
+
+#[test]
+fn test_zero_during_conversion_still_refines() {
+    // No candidate is numbered 0, so it extends the reading like any
+    // printable char.
+    let mut engine = InputMethodEngine::new();
+    engine.process_key(&press('a'));
+    engine.process_key(&press('i'));
+    engine.process_key(&press_key(Keysym::SPACE));
+    assert!(matches!(engine.state(), InputState::Conversion { .. }));
+
+    let result = engine.process_key(&press('0'));
+    assert!(committed(&result).is_none(), "0 must not commit");
+    assert_eq!(engine.input_buf.reading(), "あい0");
 }
 
 #[test]

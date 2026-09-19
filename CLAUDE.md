@@ -18,6 +18,7 @@ Fork 固有の拡張は次のとおり（upstream を取り込んだ後の追補
 
 - **F6-F10 変換**: `karukan-im/core/src/core/engine/fkeys.rs` — F6=ひらがな, F7=全角カタカナ, F8=半角カタカナ, F9=全角英数, F10=半角英数。Ctrl+L（全角英数）/ Ctrl+;（半角英数）も対応。Ctrl+J はひらがなではなく upstream のチャンク区切り（#87）なので注意。F6-F8 は学習キャッシュへ記録される（`record_learning`）、F9/F10 は記録しない。
 - **テンキー直接入力**: `keycode.rs` の `KP_*` keysym と `keypad_char()`。テンキー数字は候補選択を起こさずリテラル入力し、KP_ENTER は Enter と同じ確定。
+- **変換中の数字キーで候補選択**: `conversion.rs` の `process_key_conversion` — 変換状態ではメイン列の 1〜9 が単独でも候補を選択・確定する（Mozc 準拠。Ctrl+数字はターミナルやOSに先取りされるため）。後述の upstream 記述「bare digits refine」は変換状態の 1〜9 には当てはまらない。`0`・テンキー数字・入力中（Composing）の数字は従来どおりリテラル入力。
 - **Escape 2段階キャンセル**: `input.rs` の `cancel_composing` — 1回目の Escape は候補/ライブ変換の表示だけを閉じ、2回目で破棄（Mozc 準拠）。絵文字モードの Escape はキャンセル（Slack 式のリテラル確定は廃止）。
 - **単語末 n の「ん」確定**: `karukan-engine/src/romaji/converter.rs` の継続ガード + `rules.rs` の `n→ん`。`nya`/`nn` を壊さないようバッファ継続判定を持つ。
 - **学習スコアの半減期方式**: `karukan-engine/src/learning.rs` — 7日半減期の指数減衰（`recency = 0.5^(age/7) * 3 + freq`）。

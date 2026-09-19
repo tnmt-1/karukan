@@ -648,20 +648,21 @@ impl InputMethodEngine {
                     if let Some(source) = source_for_key(key.keysym) {
                         return self.jump_to_source(source);
                     }
+                }
 
-                    // Ctrl+1..9: select and commit that candidate. Bare
-                    // digits refine below like any printable character, so
-                    // typing numbers never conflicts with selection.
-                    if let Some(digit) = key.keysym.digit_value() {
-                        return self.select_shown_candidate(digit);
-                    }
+                // 1..9, bare or with Ctrl: select and commit that candidate
+                // (mozc-style). Bare digits select here because Ctrl+digit
+                // is often taken by the terminal or the OS before the IME
+                // sees it. `0` and the keypad digits still refine below.
+                if let Some(digit) = key.keysym.digit_value() {
+                    return self.select_shown_candidate(digit);
                 }
 
                 // A printable character refines instead of committing:
                 // the reading grows and the suggestion rewrites in place,
                 // keeping any active source filter. Keypad keys count as
-                // direct input the same way (issue #51): they refine like
-                // the main-row digits instead of selecting candidates.
+                // direct input the same way (issue #51): they refine
+                // instead of selecting candidates.
                 let keypad_ch = key.keysym.keypad_char();
                 let is_refining = key.to_char().is_some() || keypad_ch.is_some();
                 if is_refining && !key.modifiers.control_key && !key.modifiers.alt_key {
