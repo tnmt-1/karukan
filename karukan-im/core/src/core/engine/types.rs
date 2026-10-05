@@ -5,7 +5,7 @@ use karukan_engine::{
     SymbolStyle, WidthRules,
 };
 
-use crate::config::settings::{SpaceStyle, StrategyMode};
+use crate::config::settings::{CandidateWindow, SpaceStyle, StrategyMode};
 
 use super::super::candidate::CandidateList;
 use super::super::preedit::Preedit;
@@ -75,6 +75,11 @@ pub struct EngineConfig {
     pub display_context_chars: usize,
     /// Maximum context length for API calls (to avoid overflow)
     pub context_chars: usize,
+    /// Persona text prepended to every model lctx (empty = disabled).
+    /// `with_config` NFKC-normalizes and trims it to its last 25 chars, so
+    /// an engine's copy is exactly what `run_kana_kanji_conversion` sends
+    /// and the aux mode indicator shows.
+    pub persona: String,
     /// Maximum reading length (chars) converted by the model in a single call.
     /// The composing buffer is split into chunks of at most this many chars so
     /// live-conversion latency stays bounded for long input. See
@@ -102,6 +107,8 @@ pub struct EngineConfig {
     pub verbose: bool,
     /// Whether live conversion is enabled at engine startup
     pub live_conversion: bool,
+    /// When the candidate window (aux line included) opens
+    pub candidate_window: CandidateWindow,
     /// Which symbol the `,` `.` `/` `[` `]` keys type
     pub symbol: SymbolStyle,
     /// The width kana input comes out at, per character group
@@ -124,6 +131,7 @@ impl EngineConfig {
             } else {
                 0
             },
+            persona: settings.conversion.persona.clone(),
             chunk_chars: settings.conversion.chunk_chars,
             chunk_symbols: settings.conversion.chunk_symbols,
             chunk_digits: settings.conversion.chunk_digits,
@@ -134,6 +142,7 @@ impl EngineConfig {
             strategy: settings.conversion.strategy,
             verbose: settings.display.verbose,
             live_conversion: settings.conversion.live_conversion,
+            candidate_window: settings.display.candidate_window,
             symbol: settings.symbol.style(),
             width: settings.width,
             space: settings.symbol.space,
@@ -153,11 +162,13 @@ impl Default for EngineConfig {
             chunk_digits: 0,
             chunk_alphabets: 0,
             beam_chars: 30,
+            persona: String::new(),
             beam_width: 3,
             max_latency_ms: 100,
             strategy: StrategyMode::default(),
             verbose: false,
             live_conversion: false,
+            candidate_window: CandidateWindow::default(),
             symbol: SymbolStyle::default(),
             width: WidthRules::default(),
             space: SpaceStyle::default(),

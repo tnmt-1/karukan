@@ -110,11 +110,11 @@ impl InputMethodEngine {
     }
 
     /// Process key in empty state
-    pub(super) fn process_key_empty(&mut self, key: &KeyEvent, shift_active: bool) -> EngineResult {
+    pub(super) fn process_key_empty(&mut self, key: &KeyEvent) -> EngineResult {
         // Shift+Space on its own is the "I want a full-width space" gesture,
         // whatever the setting says. Committed directly, so no composition
         // opens for a second Space to convert.
-        if shift_active && key.keysym == Keysym::SPACE && !key.modifiers.control_key {
+        if key.modifiers.shift_key && key.keysym == Keysym::SPACE && !key.modifiers.control_key {
             return EngineResult::consumed()
                 .with_action(EngineAction::Commit("\u{3000}".to_string()));
         }
@@ -135,8 +135,8 @@ impl InputMethodEngine {
         // `:` from Empty enters emoji shortcode mode. Accept both keysym
         // shapes a layout can emit for `:` — the `colon` keysym directly,
         // or `semicolon` with shift held.
-        let typed_colon =
-            key.to_char() == Some(':') || (shift_active && key.keysym == Keysym(b';' as u32));
+        let typed_colon = key.to_char() == Some(':')
+            || (key.modifiers.shift_key && key.keysym == Keysym(b';' as u32));
         if typed_colon
             && !key.modifiers.control_key
             && !key.modifiers.alt_key
@@ -168,7 +168,7 @@ impl InputMethodEngine {
             // fcitx5 may resolve Shift into the keysym (sending 'A' instead of 'a'+shift),
             // so we must also check for uppercase to handle both cases.
             let is_shift_alpha =
-                ch.is_ascii_uppercase() || (shift_active && ch.is_ascii_alphabetic());
+                ch.is_ascii_uppercase() || (key.modifiers.shift_key && ch.is_ascii_alphabetic());
 
             if is_shift_alpha {
                 // Shift-alphabet is a temporary per-word mode, not a sticky
@@ -232,11 +232,7 @@ impl InputMethodEngine {
     }
 
     /// Process key in hiragana input state
-    pub(super) fn process_key_composing(
-        &mut self,
-        key: &KeyEvent,
-        shift_active: bool,
-    ) -> EngineResult {
+    pub(super) fn process_key_composing(&mut self, key: &KeyEvent) -> EngineResult {
         // Handle Ctrl+key shortcuts
         if key.modifiers.control_key {
             match key.keysym {
@@ -281,7 +277,7 @@ impl InputMethodEngine {
             Keysym::BACKSPACE => self.backspace_composing(),
             Keysym::DELETE => self.delete_composing(),
             // Shift+Space: a space, since bare Space converts here.
-            Keysym::SPACE if shift_active => self.input_space(),
+            Keysym::SPACE if key.modifiers.shift_key => self.input_space(),
             Keysym::SPACE if self.mode.current() == InputMode::Alphabet => {
                 let space = self.space_char();
                 self.input_char(space)
@@ -312,8 +308,8 @@ impl InputMethodEngine {
                 {
                     // Detect Shift+letter: shift modifier with alphabetic, OR uppercase keysym.
                     // fcitx5 may resolve Shift into the keysym (sending 'A' instead of 'a'+shift).
-                    let is_shift_alpha =
-                        ch.is_ascii_uppercase() || (shift_active && ch.is_ascii_alphabetic());
+                    let is_shift_alpha = ch.is_ascii_uppercase()
+                        || (key.modifiers.shift_key && ch.is_ascii_alphabetic());
 
                     if is_shift_alpha && self.mode.current() != InputMode::Alphabet {
                         // Bake katakana before switching so preedit doesn't
