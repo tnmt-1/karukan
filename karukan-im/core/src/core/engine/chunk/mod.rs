@@ -27,6 +27,11 @@ impl InputMethodEngine {
     /// or `None` when it equals the raw reading (no useful suggestion).
     /// Input no longer than one chunk — the common case — is a single
     /// whole-buffer model call.
+    ///
+    /// When the learning cache has an exact entry for the whole reading, its
+    /// top surface replaces the chunks, so the live display and Enter agree
+    /// with the head of the suggestion list. The return value stays the
+    /// model's, which keeps the model's answer in that list.
     pub(super) fn chunked_auto_suggest(&mut self) -> Option<String> {
         let full_reading = self.input_buf.reading();
         if full_reading.is_empty() {
@@ -39,10 +44,25 @@ impl InputMethodEngine {
         let chunks = self.convert_chunks(&text, &base_ctx);
         let combined: String = chunks.iter().map(|c| c.converted.as_str()).collect();
 
-        self.chunks = chunks;
+        let learned = self.learning.as_ref().and_then(|cache| {
+            cache
+                .lookup(&full_reading)
+                .into_iter()
+                .next()
+                .map(|(surface, _)| surface)
+        });
+        self.chunks = match learned {
+            Some(surface) => vec![ComposingChunk {
+                reading: full_reading.clone(),
+                converted: surface,
+                learned: true,
+            }],
+            None => chunks,
+        };
         self.log_chunk_state("convert");
 
-        (combined != full_reading).then_some(combined)
+        let live_differs = self.chunks.iter().any(|c| c.converted != c.reading);
+        (combined != full_reading || live_differs).then_some(combined)
     }
 
     /// The single implementation of the chunk-grid conversion: split with
@@ -131,7 +151,11 @@ impl InputMethodEngine {
         } else {
             reading.clone()
         };
-        ComposingChunk { reading, converted }
+        ComposingChunk {
+            reading,
+            converted,
+            learned: false,
+        }
     }
 
     /// Configured maximum chunk length in chars, clamped to at least 1.

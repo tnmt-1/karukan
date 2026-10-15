@@ -289,6 +289,9 @@ pub(in crate::core) struct ComposingChunk {
     /// Model conversion of `reading` — this chunk's slice of the live preedit.
     /// Falls back to `reading` when the model yields nothing.
     pub converted: String,
+    /// `converted` is a learned surface rather than the model's answer: the
+    /// width the user committed it with is kept, never settled again.
+    pub learned: bool,
 }
 
 /// Live conversion state. The displayed text itself is not stored: it is

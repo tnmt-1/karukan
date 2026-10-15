@@ -468,3 +468,73 @@ fn test_ctrl_shift_l_shows_aux_text() {
     );
     assert!(has_aux);
 }
+
+// --- Learned surface as the live conversion ---
+
+/// Live conversion engine with `reading → surface` learned, the model
+/// answering `model` for `katakana`, and `keys` typed.
+fn live_with_learned(
+    reading: &str,
+    surface: &str,
+    katakana: &str,
+    model: &str,
+    keys: &str,
+) -> InputMethodEngine {
+    let mut engine = make_live_conversion_engine();
+    let mut cache = LearningCache::new(LearningConfig::default());
+    cache.record(reading, surface);
+    engine.learning = Some(cache);
+    seed_model_cache(&mut engine, katakana, "", &[model]);
+    for ch in keys.chars() {
+        engine.process_key(&press(ch));
+    }
+    engine
+}
+
+#[test]
+fn test_live_conversion_shows_learned_surface() {
+    let mut engine = live_with_learned("かいぎょう", "改行", "カイギョウ", "開業", "kaigyou");
+    assert_eq!(engine.preedit().unwrap().text(), "改行");
+    // The model's answer stays selectable behind the learned one
+    let texts: Vec<_> = engine
+        .shown_suggestions
+        .candidates()
+        .iter()
+        .map(|c| c.text.as_str())
+        .collect();
+    assert_eq!(texts[..2], ["改行", "開業"]);
+
+    let result = engine.process_key(&press_key(Keysym::RETURN));
+    assert!(
+        result
+            .actions
+            .iter()
+            .any(|a| matches!(a, EngineAction::Commit(t) if t == "改行"))
+    );
+}
+
+#[test]
+fn test_live_conversion_learned_surface_when_model_returns_kana() {
+    let engine = live_with_learned("かいぎょう", "改行", "カイギョウ", "かいぎょう", "kaigyou");
+    assert_eq!(engine.preedit().unwrap().text(), "改行");
+}
+
+#[test]
+fn test_live_conversion_ignores_learned_prediction() {
+    // A learned longer reading must not complete what was not typed
+    let engine = live_with_learned(
+        "かいぎょうする",
+        "改行する",
+        "カイギョウ",
+        "開業",
+        "kaigyou",
+    );
+    assert_eq!(engine.preedit().unwrap().text(), "開業");
+}
+
+#[test]
+fn test_live_conversion_keeps_learned_width() {
+    // `ascii_symbol = full` settles the model's answers, not what the user committed
+    let engine = live_with_learned("やふー", "Yahoo!", "ヤフー", "やふー", "yahu-");
+    assert_eq!(engine.preedit().unwrap().text(), "Yahoo!");
+}

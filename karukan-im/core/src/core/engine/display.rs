@@ -32,8 +32,16 @@ impl InputMethodEngine {
         }
         // Model output, so it settles here: the prompt is NFKC-normalized
         // and the answer comes back half-width whatever was typed.
-        let converted: String = self.chunks.iter().map(|c| c.converted.as_str()).collect();
-        self.settle_text(&converted)
+        self.chunks
+            .iter()
+            .map(|c| {
+                if c.learned {
+                    c.converted.clone()
+                } else {
+                    self.settle_text(&c.converted)
+                }
+            })
+            .collect()
     }
 
     /// Build a preedit for composing state.

@@ -381,6 +381,7 @@ fn fkey_ignores_live_conversion_surface_and_uses_reading() {
     engine.chunks = vec![ComposingChunk {
         reading: "こんにちは".to_string(),
         converted: "今日は".to_string(),
+        learned: false,
     }];
 
     let result = engine.process_key(&press_key(Keysym::F7));
