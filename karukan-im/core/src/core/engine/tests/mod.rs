@@ -20,6 +20,7 @@ mod keypad;
 mod learning;
 mod live_conversion;
 mod mode_toggle;
+mod mozkey;
 mod passthrough;
 mod pending_romaji;
 mod persona;

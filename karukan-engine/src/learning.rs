@@ -20,6 +20,15 @@ pub struct LearningEntry {
     pub last_access: u64,
 }
 
+/// The state one [`LearningCache::record`] overwrote, for
+/// [`LearningCache::undo_record`].
+#[derive(Debug, Clone)]
+pub struct RecordUndo {
+    reading: String,
+    surface: String,
+    previous: Option<LearningEntry>,
+}
+
 /// Size limits for a [`LearningCache`].
 ///
 /// Passed whole at construction ([`LearningCache::new`] /
@@ -76,15 +85,22 @@ impl LearningCache {
     }
 
     /// Record a user selection. Increments frequency and updates last_access.
+    /// Returns what [`undo_record`](Self::undo_record) needs to take it back,
+    /// or `None` when nothing was recorded.
     ///
     /// Surfaces longer than `max_surface_chars` are skipped; see
     /// [`LearningConfig::max_surface_chars`] for why.
-    pub fn record(&mut self, reading: &str, surface: &str) {
+    pub fn record(&mut self, reading: &str, surface: &str) -> Option<RecordUndo> {
         if surface.chars().count() > self.max_surface_chars {
-            return;
+            return None;
         }
         let now = now_unix();
         let entries = self.entries.entry(reading.to_string()).or_default();
+        let undo = RecordUndo {
+            reading: reading.to_string(),
+            surface: surface.to_string(),
+            previous: entries.iter().find(|e| e.surface == surface).cloned(),
+        };
 
         if let Some(entry) = entries.iter_mut().find(|e| e.surface == surface) {
             entry.frequency += 1;
@@ -95,6 +111,23 @@ impl LearningCache {
                 frequency: 1,
                 last_access: now,
             });
+        }
+        self.dirty = true;
+        Some(undo)
+    }
+
+    /// Take back one [`record`](Self::record): the entry returns to what it
+    /// was before, or disappears if that record created it.
+    pub fn undo_record(&mut self, undo: RecordUndo) {
+        let Some(entries) = self.entries.get_mut(&undo.reading) else {
+            return;
+        };
+        entries.retain(|e| e.surface != undo.surface);
+        if let Some(previous) = undo.previous {
+            entries.push(previous);
+        }
+        if entries.is_empty() {
+            self.entries.remove(&undo.reading);
         }
         self.dirty = true;
     }
@@ -355,6 +388,19 @@ mod tests {
         let scores = cache.surface_scores(["高", "嵩", "鷹"]);
         assert!(scores["高"] > scores["嵩"]);
         assert!(!scores.contains_key("鷹"));
+    }
+
+    #[test]
+    fn undo_record_restores_previous_state() {
+        let mut cache = LearningCache::new(LearningConfig::default());
+        cache.record("こう", "高");
+        let undo = cache.record("こう", "高").unwrap();
+        cache.undo_record(undo);
+        assert_eq!(cache.entries["こう"][0].frequency, 1);
+
+        let undo = cache.record("たか", "鷹").unwrap();
+        cache.undo_record(undo);
+        assert!(!cache.entries.contains_key("たか"));
     }
 
     #[test]

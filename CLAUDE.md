@@ -22,6 +22,11 @@ Fork 固有の拡張は次のとおり（upstream を取り込んだ後の追補
 - **Escape 2段階キャンセル**: `input.rs` の `cancel_composing` — 1回目の Escape は候補/ライブ変換の表示だけを閉じ、2回目で破棄（Mozc 準拠）。絵文字モードの Escape はキャンセル（Slack 式のリテラル確定は廃止）。
 - **単語末 n の「ん」確定**: `karukan-engine/src/romaji/converter.rs` の継続ガード + `rules.rs` の `n→ん`。`nya`/`nn` を壊さないようバッファ継続判定を持つ。
 - **学習スコアの半減期方式**: `karukan-engine/src/learning.rs` — 7日半減期の指数減衰（`recency = 0.5^(age/7) * 3 + freq`）。
+- **mozkey 由来の入力補助**: `tests/mozkey.rs` にまとめてテスト。
+  - 単打確定: `input.rs` の `commit_on_mark` / `conversion.rs` の `commit_conversion_with`。`[symbol] commit_on`（既定 。、？！）の記号を入力の末尾で打つと、表示中のライブ変換結果（変換中なら選択候補）に記号を付けて確定する。学習は記号を除いて記録。
+  - 短い入力のライブ変換抑制: `too_short_for_live`。`[conversion] live_min_chars`（既定 2）未満のかな（末尾の記号は数えない）はモデルに渡さない。
+  - 候補の保持: `holds_suggestions`。末尾のローマ字が未確定の間は直前の候補一覧を保持する（upstream の末尾ローマ字による絞り込みより優先。Ctrl+数字で選ぶと末尾のローマ字は捨てる）。
+  - 学習の取り消し: `learning_undo` + `LearningCache::undo_record`。確定直後（Empty 状態の最初のキー）の Backspace / Escape / Ctrl+Z で直前の記録を戻す。キー自体はアプリへ渡す。`reset` とフォーカスアウトの `commit` で確定扱いになる。
 - **設定の移行**: 旧 `[conversion] space_style` は廃止。`[symbol] space = "half"`（既定は半角、upstream 準拠）。
 
 ## Build and Development Commands

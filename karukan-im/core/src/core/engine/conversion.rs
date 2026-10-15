@@ -676,6 +676,14 @@ impl InputMethodEngine {
                 // keeping any active source filter. Keypad keys count as
                 // direct input the same way (issue #51): they refine
                 // instead of selecting candidates.
+                // A `[symbol] commit_on` mark commits the selected
+                // candidate with the mark instead of refining.
+                if let Some(mark) = key.to_char().and_then(|ch| self.commit_mark_for(ch))
+                    && !key.modifiers.control_key
+                {
+                    return self.commit_conversion_with(&mark.to_string());
+                }
+
                 let keypad_ch = key.keysym.keypad_char();
                 let is_refining = key.to_char().is_some() || keypad_ch.is_some();
                 if is_refining && !key.modifiers.control_key && !key.modifiers.alt_key {
@@ -766,7 +774,7 @@ impl InputMethodEngine {
             return;
         }
         if let Some(cache) = &mut self.learning {
-            cache.record(reading, surface);
+            self.learning_undo = cache.record(reading, surface);
         }
     }
 
@@ -781,6 +789,12 @@ impl InputMethodEngine {
 
     /// Commit the current conversion
     fn commit_conversion(&mut self) -> EngineResult {
+        self.commit_conversion_with("")
+    }
+
+    /// Commit the selected candidate with `suffix` appended to the committed
+    /// text — a `[symbol] commit_on` mark — but not to what is learned.
+    fn commit_conversion_with(&mut self, suffix: &str) -> EngineResult {
         let Some((text, reading)) = self.selected_conversion_info() else {
             return EngineResult::not_consumed();
         };
@@ -794,7 +808,24 @@ impl InputMethodEngine {
         EngineResult::consumed()
             .with_action(EngineAction::HideCandidates)
             .with_action(EngineAction::HideAuxText)
-            .with_action(EngineAction::Commit(text))
+            .with_action(EngineAction::Commit(text + suffix))
+    }
+
+    /// The `[symbol] commit_on` mark `ch` types on its own in kana input
+    /// (`.` → 。), if any.
+    fn commit_mark_for(&self, ch: char) -> Option<char> {
+        if !matches!(
+            self.mode.current(),
+            InputMode::Hiragana | InputMode::Katakana
+        ) {
+            return None;
+        }
+        let typed = self.converters.romaji.convert_flush(&ch.to_string());
+        let mut chars = typed.chars();
+        match (chars.next(), chars.next()) {
+            (Some(mark), None) if self.is_commit_mark(mark) => Some(mark),
+            _ => None,
+        }
     }
 
     /// Whether the selected candidate can be removed from the learning

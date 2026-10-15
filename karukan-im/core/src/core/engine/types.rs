@@ -107,6 +107,8 @@ pub struct EngineConfig {
     pub verbose: bool,
     /// Whether live conversion is enabled at engine startup
     pub live_conversion: bool,
+    /// Kana a reading needs before live conversion runs (0 = no minimum)
+    pub live_min_chars: usize,
     /// When the candidate window (aux line included) opens
     pub candidate_window: CandidateWindow,
     /// Which symbol the `,` `.` `/` `[` `]` keys type
@@ -115,6 +117,8 @@ pub struct EngineConfig {
     pub width: WidthRules,
     /// The space the Space key inputs
     pub space: SpaceStyle,
+    /// Marks that commit the composition when typed at its end
+    pub commit_on: Vec<char>,
     /// Date/time phrases and their formats
     pub date: DateConfig,
 }
@@ -142,10 +146,12 @@ impl EngineConfig {
             strategy: settings.conversion.strategy,
             verbose: settings.display.verbose,
             live_conversion: settings.conversion.live_conversion,
+            live_min_chars: settings.conversion.live_min_chars,
             candidate_window: settings.display.candidate_window,
             symbol: settings.symbol.style(),
             width: settings.width,
             space: settings.symbol.space,
+            commit_on: settings.symbol.commit_on.clone(),
             date: settings.date.clone(),
         }
     }
@@ -168,10 +174,12 @@ impl Default for EngineConfig {
             strategy: StrategyMode::default(),
             verbose: false,
             live_conversion: false,
+            live_min_chars: 0,
             candidate_window: CandidateWindow::default(),
             symbol: SymbolStyle::default(),
             width: WidthRules::default(),
             space: SpaceStyle::default(),
+            commit_on: Vec::new(),
             date: DateConfig::default(),
         }
     }

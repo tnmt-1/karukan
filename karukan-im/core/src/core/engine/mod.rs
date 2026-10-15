@@ -96,6 +96,16 @@ impl AnnotatedCandidate {
 const PERSONA_CHARS: usize = 25;
 
 /// Keep at most the last `n` characters of `s`.
+/// Keys that, pressed right after a commit, say the commit was wrong:
+/// Backspace, Escape, Ctrl+Z.
+fn is_commit_cancel_key(key: &KeyEvent) -> bool {
+    match key.keysym {
+        Keysym::BACKSPACE | Keysym::ESCAPE => true,
+        Keysym::KEY_Z | Keysym::KEY_Z_UPPER => key.modifiers.control_key,
+        _ => false,
+    }
+}
+
 fn keep_last_chars(s: &str, n: usize) -> String {
     let char_count = s.chars().count();
     if char_count > n {
@@ -159,6 +169,10 @@ pub struct InputMethodEngine {
     dicts: Dictionaries,
     /// Learning cache (user conversion history)
     learning: Option<LearningCache>,
+    /// The record the last commit made, kept until the next key: Backspace,
+    /// Escape or Ctrl+Z right after a commit means the result was wrong,
+    /// so it takes the record back (mozkey-style); any other key keeps it.
+    learning_undo: Option<karukan_engine::learning::RecordUndo>,
     /// Receiver for the background model-loading thread: model resolution
     /// can block on the network, so it never runs on the key-event thread.
     /// Drained by `poll_loaded_models` at the top of `process_key`; until
@@ -191,6 +205,7 @@ impl InputMethodEngine {
             shown_suggestions: CandidateList::default(),
             dicts: Dictionaries::default(),
             learning: None,
+            learning_undo: None,
             model_loading: None,
         }
     }
@@ -275,6 +290,9 @@ impl InputMethodEngine {
         self.mode = ModeState::default();
         self.clear_composition();
         self.metrics = ConversionMetrics::default();
+        // A focus change settles the last commit: the next Backspace is
+        // someone else's.
+        self.learning_undo = None;
     }
 
     /// Drop all composition-scoped state in one place: the input buffer, the
@@ -620,6 +638,17 @@ impl InputMethodEngine {
             return EngineResult::not_consumed();
         }
 
+        // The last commit's record lives until this key: a cancel key right
+        // after the commit takes it back. The key itself still reaches the
+        // application (Backspace deletes the char as usual).
+        if let Some(undo) = self.learning_undo.take()
+            && matches!(self.state, InputState::Empty)
+            && is_commit_cancel_key(key)
+            && let Some(cache) = &mut self.learning
+        {
+            cache.undo_record(undo);
+        }
+
         // Ctrl+Shift+L: toggle live conversion (works in all states)
         if key.modifiers.control_key
             && key.modifiers.shift_key
@@ -725,6 +754,8 @@ impl InputMethodEngine {
             }
         };
         self.surrounding_context = None;
+        // A focus-out commit is final, like mozkey's IMEOff.
+        self.learning_undo = None;
         text
     }
 

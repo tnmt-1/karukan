@@ -5,6 +5,7 @@
 ```toml
 [conversion]
 live_conversion = true          # ライブ変換を起動時に有効化（Ctrl+Shift+L で実行中も切替。既定ON）
+live_min_chars = 2              # ライブ変換を始めるかなの文字数（末尾の記号は数えない。0 = 常に変換）
 chunk_chars = 30                # 一度にAI変換する Chunk の最大文字数（[Chunk](chunking.md) 参照）
 chunk_symbols = 1               # Chunk に残せる記号（、。！？など）の数
 chunk_digits = 0                # Chunk に残せる数字の桁数（0 = 数字はAI変換にかけない）
@@ -32,6 +33,7 @@ punctuation = "、。"            # 「,」「.」キーが入力する句読点
 bracket = "「」"                # 「[」「]」キーが入力する括弧（"[]"）
 slash = "・"                    # 「/」キーが入力する記号（"/"）
 space = "half"                 # かな入力中のスペースキーが入力する空白（"full" / "half"）
+commit_on = ["。", "、", "？", "！"]  # 入力の末尾で打つとすぐ確定する記号（単打確定。[] で無効）
 
 [width]                        # かな入力中の出力幅（"half" / "full"）
 kana_symbol = "full"             # 。、「」・

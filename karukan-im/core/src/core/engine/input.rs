@@ -34,6 +34,7 @@ impl InputMethodEngine {
         // so live conversion stays alive on a mixed reading.
         let convert = !self.suppress_suggest
             && !full_reading.is_empty()
+            && !self.too_short_for_live(&full_reading)
             && (self.mode.current() != InputMode::Alphabet
                 || karukan_engine::contains_kana(&full_reading));
         let candidates = if convert {
@@ -55,7 +56,7 @@ impl InputMethodEngine {
             append_candidates_dedup(&mut all_candidates, self.lookup_dict_candidates(&reading));
             append_candidates_dedup(&mut all_candidates, self.lookup_rewriter_variants(&reading));
             let aux = self.format_aux_composing();
-            if all_candidates.is_empty() {
+            if all_candidates.is_empty() && !self.holds_suggestions() {
                 self.shown_suggestions = CandidateList::default();
                 return EngineResult::consumed()
                     .with_action(EngineAction::UpdatePreedit(preedit))
@@ -105,8 +106,71 @@ impl InputMethodEngine {
     /// Show `candidates` in the composing suggestion window, remembering the
     /// list so Ctrl+digit can select from exactly what is on screen.
     fn show_suggestions(&mut self, candidates: Vec<Candidate>) -> EngineAction {
-        self.shown_suggestions = self.settle_candidates(candidates);
+        if !self.holds_suggestions() {
+            self.shown_suggestions = self.settle_candidates(candidates);
+        }
         EngineAction::ShowCandidates(self.shown_suggestions.clone())
+    }
+
+    /// While a romaji tail is unresolved at the end (the `d` in 「わせだd」),
+    /// the window keeps the list from before the tail instead of narrowing
+    /// on every consonant (mozkey-style). Ctrl+digit picks from that list,
+    /// dropping the tail.
+    fn holds_suggestions(&self) -> bool {
+        !self.shown_suggestions.is_empty()
+            && !self.input_buf.pending().is_empty()
+            && self.input_buf.cursor() == self.input_buf.char_count()
+    }
+
+    /// `[conversion] live_min_chars`: a reading of fewer kana than this,
+    /// trailing marks aside (え, えー, ん？), stays kana instead of being
+    /// live-converted — a lone particle should not turn into a kanji.
+    fn too_short_for_live(&self, reading: &str) -> bool {
+        let is_kana = |c: char| matches!(c, '\u{3041}'..='\u{3096}' | '\u{30A1}'..='\u{30FA}');
+        let core = reading.trim_end_matches(|c: char| !is_kana(c));
+        let kana = core.chars().count();
+        kana > 0 && kana < self.config.live_min_chars && core.chars().all(is_kana)
+    }
+
+    /// `[symbol] commit_on`: whether `mark` is one of the configured marks,
+    /// at either width.
+    pub(super) fn is_commit_mark(&self, mark: char) -> bool {
+        let full = |c: char| karukan_engine::width::to_full_width(&c.to_string());
+        self.config.commit_on.iter().any(|&c| full(c) == full(mark))
+    }
+
+    /// A configured mark just typed at the end of the composition commits
+    /// it as displayed, mark appended (mozkey's 単打確定). The mark is taken
+    /// off first so the learning record and the text are what was on
+    /// screen before it.
+    fn commit_on_mark(&mut self) -> Option<EngineResult> {
+        let mark = self.input_buf.display().chars().last()?;
+        if self.input_buf.cursor() != self.input_buf.char_count()
+            || !self.input_buf.pending().is_empty()
+            || !self.is_commit_mark(mark)
+        {
+            return None;
+        }
+        self.edit_with_chunk_breaks(|e| e.input_buf.backspace(&e.converters.romaji));
+        let text = if self.input_buf.is_empty() {
+            String::new()
+        } else {
+            // The chunks predate the keystroke that fired with the mark
+            // (`n.` → ん。), so bring them up to the buffer; usually a cache hit.
+            if self.live.shown {
+                self.refresh_input_state();
+            }
+            let (reading, text) = self.resolve_composing_commit();
+            self.record_learning(&reading, &text);
+            text
+        };
+        self.end_composition();
+        Some(
+            EngineResult::consumed()
+                .with_action(EngineAction::Commit(format!("{text}{mark}")))
+                .with_action(EngineAction::HideCandidates)
+                .with_action(EngineAction::HideAuxText),
+        )
     }
 
     /// Process key in empty state
@@ -199,6 +263,9 @@ impl InputMethodEngine {
             // sequences like `「」` or getting symbol variants. Treat them like
             // digits — let them enter Composing and accumulate in the preedit.
             self.input_buf.push_romaji(ch, &self.converters.romaji);
+            if let Some(result) = self.commit_on_mark() {
+                return result;
+            }
         }
 
         let preedit = self.set_composing_state();
@@ -380,6 +447,9 @@ impl InputMethodEngine {
         self.edit_with_chunk_breaks(|e| e.input_buf.push_romaji(ch, &e.converters.romaji));
 
         if let Some(result) = self.try_reset_if_empty() {
+            return result;
+        }
+        if let Some(result) = self.commit_on_mark() {
             return result;
         }
 

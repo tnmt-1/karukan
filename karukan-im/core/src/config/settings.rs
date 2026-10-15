@@ -94,6 +94,9 @@ pub struct SymbolSettings {
     pub slash: SlashStyle,
     /// The space Space inputs while typing kana
     pub space: SpaceStyle,
+    /// Marks that, typed at the end of a composition, commit it as
+    /// displayed with the mark (mozkey's 単打確定). Matched at either width.
+    pub commit_on: Vec<char>,
 }
 
 impl SymbolSettings {
@@ -201,6 +204,9 @@ pub struct ConversionSettings {
     pub n_threads: u32,
     /// Enable live conversion at startup (Ctrl+Shift+L still toggles at runtime)
     pub live_conversion: bool,
+    /// Kana a reading needs before live conversion runs (trailing marks not
+    /// counted), so a lone particle never turns into a kanji. 0 disables.
+    pub live_min_chars: usize,
 }
 
 /// Learning cache settings
@@ -384,6 +390,7 @@ mod tests {
         assert!(settings.learning.enabled);
         assert_eq!(settings.learning.max_entries, 10000);
         assert_eq!(settings.learning.max_surface_chars, 50);
+        assert_eq!(settings.conversion.live_min_chars, 2);
     }
 
     #[test]
@@ -395,6 +402,7 @@ mod tests {
         assert_eq!(settings.symbol.bracket, BracketStyle::Corner);
         assert_eq!(settings.symbol.slash, SlashStyle::MiddleDot);
         assert_eq!(settings.symbol.space, SpaceStyle::Half);
+        assert_eq!(settings.symbol.commit_on, ['。', '、', '？', '！']);
         assert_eq!(settings.width.kana_symbol, Width::Full);
         assert_eq!(settings.width.ascii_symbol, Width::Full);
         assert_eq!(settings.width.digit, Width::Half);
