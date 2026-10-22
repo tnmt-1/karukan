@@ -245,6 +245,13 @@ impl InputBuffer {
         }
     }
 
+    /// Drop the first `n` elements — a head committed on its own — and
+    /// put the caret at the end of what remains.
+    pub fn drain_front(&mut self, n: usize) {
+        self.elements.drain(..n.min(self.elements.len()));
+        self.cursor = self.elements.len();
+    }
+
     /// Move the caret to a display position (also its element index).
     pub fn set_cursor(&mut self, pos: usize) {
         self.cursor = pos.min(self.elements.len());

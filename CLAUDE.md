@@ -27,6 +27,7 @@ Fork 固有の拡張は次のとおり（upstream を取り込んだ後の追補
   - 短い入力のライブ変換抑制: `too_short_for_live`。`[conversion] live_min_chars`（既定 2）未満のかな（末尾の記号は数えない）はモデルに渡さない。
   - 候補の保持: `holds_suggestions`。末尾のローマ字が未確定の間は直前の候補一覧を保持する（upstream の末尾ローマ字による絞り込みより優先。Ctrl+数字で選ぶと末尾のローマ字は捨てる）。
   - 学習の取り消し: `learning_undo` + `LearningCache::undo_record`。確定直後（Empty 状態の最初のキー）の Backspace / Escape / Ctrl+Z で直前の記録を戻す。キー自体はアプリへ渡す。`reset` とフォーカスアウトの `commit` で確定扱いになる。
+- **変換範囲の調整**: `conversion.rs` の `resize_conversion` / `commit_narrowed`。変換中の Shift+← / Shift+→ で変換対象（読みの先頭 n 文字、`InputState::Conversion::range`）の右端を動かす。範囲は Highlight、区切りの `|` と残りの読みは Underline の preedit で表示する（ターミナルは下線の種類を捨てるため、文字で境目を見せる。`|` は確定されない）。Enter・数字キー・単打確定・F6-F10 は範囲だけを確定し、残りは Composing に戻ってライブ変換される。フォーカスアウトの `commit` は範囲の確定結果と残りの読みをまとめて確定する。`tests/conversion_range.rs` にテスト。
 - **設定の移行**: 旧 `[conversion] space_style` は廃止。`[symbol] space = "half"`（既定は半角、upstream 準拠）。
 
 ## Build and Development Commands

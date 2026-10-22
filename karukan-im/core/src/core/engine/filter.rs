@@ -101,7 +101,7 @@ impl InputMethodEngine {
         // Left shown, the stale live chunks would survive the commit and
         // render as the next composition's preedit.
         self.live.shown = false;
-        self.enter_conversion_state(&reading, CandidateList::new(Vec::new()));
+        self.enter_conversion_state(&reading, CandidateList::new(Vec::new()), None);
         true
     }
 
@@ -114,7 +114,7 @@ impl InputMethodEngine {
         let view = self.source_view(next, &reading);
         let list = self.settle_candidates(view);
         let selected = list.selected_text().unwrap_or(&reading).to_string();
-        let preedit = Preedit::with_text_highlighted(&selected);
+        let preedit = self.conversion_preedit(&selected);
         // The aux leads with what the user typed, tail included — typing
         // refines the view in place, and the selected candidate's own
         // reading would otherwise be the only thing on the line, leaving no
@@ -225,8 +225,10 @@ impl InputMethodEngine {
     /// The split only predicts correctly while the caret sits at the end of
     /// the composition (あk|い settles to あkい, never あいか…); otherwise
     /// fall back to the settled `reading` with no tail.
+    /// A narrowed conversion's head never reaches the tail, so it queries
+    /// the head as is.
     fn live_query_split(&self, reading: &str) -> (String, String) {
-        if self.input_buf.cursor() == self.input_buf.char_count() {
+        if self.state.range().is_none() && self.input_buf.cursor() == self.input_buf.char_count() {
             (self.input_buf.reading(), self.input_buf.pending())
         } else {
             (reading.to_string(), String::new())

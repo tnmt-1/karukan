@@ -28,6 +28,10 @@ pub enum InputState {
         reading: String,
         /// Active Ctrl+R source filter; `None` shows the full list
         filter: Option<CandidateSource>,
+        /// Leading reading chars the conversion covers after Shift+←
+        /// narrowed it; `None` covers the whole composition. The rest
+        /// stays kana and keeps composing once the head is committed.
+        range: Option<usize>,
     },
 }
 
@@ -67,6 +71,14 @@ impl InputState {
     pub fn reading(&self) -> Option<&str> {
         match self {
             Self::Conversion { reading, .. } => Some(reading),
+            _ => None,
+        }
+    }
+
+    /// Narrowed conversion range (see `Conversion::range`).
+    pub fn range(&self) -> Option<usize> {
+        match self {
+            Self::Conversion { range, .. } => *range,
             _ => None,
         }
     }

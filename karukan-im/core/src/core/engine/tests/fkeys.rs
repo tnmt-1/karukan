@@ -54,6 +54,7 @@ fn conversion_engine(reading: &str, candidates: Vec<&str>) -> InputMethodEngine 
         candidates: candidate_list,
         reading: reading.to_string(),
         filter: None,
+        range: None,
     };
     engine
 }

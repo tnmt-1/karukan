@@ -358,7 +358,13 @@ impl InputMethodEngine {
         } else {
             None
         };
-        self.finish_conversion(&text, &reading);
+        if let Some(reading) = &reading {
+            self.record_learning(reading, &text);
+        }
+        if let Some(result) = self.commit_narrowed(text.clone()) {
+            return result;
+        }
+        self.end_composition();
 
         EngineResult::consumed()
             .with_action(EngineAction::Commit(text))
@@ -749,8 +755,11 @@ impl InputMethodEngine {
                 let (text, reading) = self
                     .selected_conversion_info()
                     .expect("state is Conversion");
+                // A narrowed head leaves with the kana after it: nothing
+                // typed is lost when focus moves away.
+                let rest = self.conversion_rest();
                 self.finish_conversion(&text, &reading);
-                text
+                text + &rest
             }
         };
         self.surrounding_context = None;

@@ -117,6 +117,7 @@ fn committing_a_date_candidate_records_no_learning() {
         candidates: CandidateList::new(vec![date]),
         reading: "きょう".to_string(),
         filter: None,
+        range: None,
     };
 
     let result = engine.process_key(&press_key(Keysym::RETURN));

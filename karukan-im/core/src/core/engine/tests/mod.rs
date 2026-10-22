@@ -11,6 +11,7 @@ mod candidate_window;
 mod candidates;
 mod chunks;
 mod conversion;
+mod conversion_range;
 mod cursor;
 mod date;
 mod emoji;

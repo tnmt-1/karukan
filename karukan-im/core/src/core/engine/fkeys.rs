@@ -130,6 +130,11 @@ impl InputMethodEngine {
             }
         }
 
+        // A narrowed head commits alone; the rest keeps composing.
+        if let Some(result) = self.commit_narrowed(transformed.clone()) {
+            return Some(result);
+        }
+
         // Clear all state and commit the transformed text.
         self.end_composition();
 

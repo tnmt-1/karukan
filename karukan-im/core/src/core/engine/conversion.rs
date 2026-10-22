@@ -8,6 +8,7 @@ use tracing::debug;
 
 use super::filter::source_for_key;
 use super::*;
+use crate::core::preedit::{AttributeType, PreeditSegment};
 
 /// Maximum number of learning candidates to show
 const MAX_LEARNING_CANDIDATES: usize = 3;
@@ -134,7 +135,94 @@ impl InputMethodEngine {
         }
 
         let candidate_list = self.to_conversion_candidate_list(candidates, &reading);
-        self.enter_conversion_state(&reading, candidate_list)
+        self.enter_conversion_state(&reading, candidate_list, None)
+    }
+
+    /// Shift+← / Shift+→: move the right edge of what the conversion
+    /// covers by one reading char (Mozc/MS-IME style). The head converts on
+    /// its own while the rest stays kana, so かんじにしたい narrowed to
+    /// かんじ offers 漢字; committing it leaves にしたい composing.
+    fn resize_conversion(&mut self, grow: bool) -> EngineResult {
+        let full = self.input_buf.settled_reading(&self.converters.romaji);
+        let len = full.chars().count();
+        let current = self.state.range().unwrap_or(len);
+        let next = if grow {
+            current + 1
+        } else {
+            current.saturating_sub(1)
+        };
+        if next == 0 || next > len {
+            return EngineResult::consumed();
+        }
+        if next == len {
+            return self.start_conversion(LearningLookup::Use);
+        }
+        let head: String = full.chars().take(next).collect();
+        let candidates = self.build_conversion_candidates(
+            &head,
+            &head,
+            "",
+            self.config.num_candidates,
+            LearningLookup::Use,
+        );
+        let candidate_list = self.to_conversion_candidate_list(candidates, &head);
+        self.enter_conversion_state(&head, candidate_list, Some(next))
+    }
+
+    /// The kana after a narrowed conversion's head; empty when the
+    /// conversion covers the whole composition.
+    pub(super) fn conversion_rest(&self) -> String {
+        let Some(n) = self.state.range() else {
+            return String::new();
+        };
+        self.input_buf
+            .settled_reading(&self.converters.romaji)
+            .chars()
+            .skip(n)
+            .collect()
+    }
+
+    /// Preedit for the conversion: the selected candidate highlighted, and
+    /// after a narrowed head a `|` and the rest of the reading as plain
+    /// kana. The `|` is display only (commits read the candidate, never the
+    /// preedit): terminals such as Muxy drop the underline styles and draw
+    /// the bare text, so only a character can show the boundary.
+    pub(super) fn conversion_preedit(&self, selected: &str) -> Preedit {
+        let rest = self.conversion_rest();
+        if rest.is_empty() {
+            return Preedit::with_text_highlighted(selected);
+        }
+        Preedit::from_segments(
+            vec![
+                PreeditSegment::highlighted(selected),
+                PreeditSegment::new("|", AttributeType::Underline),
+                PreeditSegment::new(rest, AttributeType::Underline),
+            ],
+            selected.chars().count(),
+        )
+    }
+
+    /// Commit `text` from a narrowed conversion: the head leaves, the rest
+    /// of the reading becomes the composition again and live-converts like
+    /// freshly typed text. `None` when the conversion covers everything,
+    /// leaving the caller's full-commit path in charge.
+    pub(super) fn commit_narrowed(&mut self, text: String) -> Option<EngineResult> {
+        let n = self.state.range()?;
+        self.settle_romaji();
+        self.input_buf.drain_front(n);
+        self.chunk_breaks = self
+            .chunk_breaks
+            .iter()
+            .filter_map(|b| b.checked_sub(n).filter(|&b| b > 0))
+            .collect();
+        self.chunks.clear();
+        self.live.shown = false;
+        self.shown_suggestions = CandidateList::default();
+        let mut result = EngineResult::consumed()
+            .with_action(EngineAction::Commit(text))
+            .with_action(EngineAction::HideCandidates);
+        result.actions.extend(self.refresh_input_state().actions);
+        Some(result)
     }
 
     /// Map builder output to the public [`CandidateList`] shown in the
@@ -160,18 +248,23 @@ impl InputMethodEngine {
         &mut self,
         reading: &str,
         candidates: CandidateList,
+        range: Option<usize>,
     ) -> EngineResult {
         let selected_text = candidates.selected_text().unwrap_or(reading).to_string();
 
-        let preedit = Preedit::with_text_highlighted(&selected_text);
-
         self.state = InputState::Conversion {
-            preedit: preedit.clone(),
+            preedit: Preedit::new(),
             candidates: candidates.clone(),
             reading: reading.to_string(),
             // A fresh conversion always starts unfiltered
             filter: None,
+            range,
         };
+        // After the state assignment: the preedit reads the range.
+        let preedit = self.conversion_preedit(&selected_text);
+        if let Some(p) = self.state.preedit_mut() {
+            *p = preedit.clone();
+        }
 
         // After the state assignment: the aux header reads the active filter.
         let aux = self.format_aux_conversion_with_page(reading, Some(&candidates));
@@ -613,6 +706,9 @@ impl InputMethodEngine {
             }
             // Backspace cancels back to the composition, like Escape.
             Keysym::BACKSPACE => self.cancel_conversion(),
+            // Shift+←/→ resize the conversion instead of moving the caret.
+            Keysym::LEFT if key.modifiers.shift_key => self.resize_conversion(false),
+            Keysym::RIGHT if key.modifiers.shift_key => self.resize_conversion(true),
             // Caret keys drop back to editing, the same way a caret move
             // ends the live-conversion display while composing: the
             // conversion (and its source filter) dissolves and the raw
@@ -803,7 +899,13 @@ impl InputMethodEngine {
             return EngineResult::consumed();
         }
 
-        self.finish_conversion(&text, &reading);
+        if let Some(reading) = &reading {
+            self.record_learning(reading, &text);
+        }
+        if let Some(result) = self.commit_narrowed(format!("{text}{suffix}")) {
+            return result;
+        }
+        self.end_composition();
 
         EngineResult::consumed()
             .with_action(EngineAction::HideCandidates)
@@ -865,9 +967,10 @@ impl InputMethodEngine {
         }
         debug!("deleted learning entry: {} -> {}", reading, surface);
 
-        // Keep the filter and cursor so consecutive deletes stay in the
-        // narrowed view and chew through the list top-down.
+        // Keep the filter, range, and cursor so consecutive deletes stay
+        // in the narrowed view and chew through the list top-down.
         let prev_filter = self.state.filter();
+        let prev_range = self.state.range();
         let prev_cursor = self.state.candidates().map(|c| c.cursor()).unwrap_or(0);
 
         let candidates = self.build_conversion_candidates(
@@ -881,7 +984,7 @@ impl InputMethodEngine {
             return self.cancel_conversion();
         }
         let candidate_list = self.to_conversion_candidate_list(candidates, &reading);
-        let mut result = self.enter_conversion_state(&reading, candidate_list);
+        let mut result = self.enter_conversion_state(&reading, candidate_list, prev_range);
 
         if let Some(source) = prev_filter {
             result = self.apply_candidate_filter(source);
@@ -972,7 +1075,7 @@ impl InputMethodEngine {
         selected_text: &str,
         candidates: CandidateList,
     ) -> EngineResult {
-        let preedit = Preedit::with_text_highlighted(selected_text);
+        let preedit = self.conversion_preedit(selected_text);
 
         if let Some(p) = self.state.preedit_mut() {
             *p = preedit.clone();
